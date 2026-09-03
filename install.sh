@@ -57,8 +57,8 @@ done
 
 command -v curl >/dev/null 2>&1 || die "curl not found on PATH."
 command -v docker >/dev/null 2>&1 || die "Docker not found. Install Docker Desktop (macOS/Windows) or Docker Engine (Linux) and re-run."
-docker info >/dev/null 2>&1 || die "Docker is installed but not running. Start Docker and re-run."
-docker compose version >/dev/null 2>&1 || die "Docker Compose v2 not found. It ships with current Docker; if you only have the old 'docker-compose' binary, upgrade Docker."
+docker info </dev/null >/dev/null 2>&1 || die "Docker is installed but not running. Start Docker and re-run."
+docker compose version </dev/null >/dev/null 2>&1 || die "Docker Compose v2 not found. It ships with current Docker; if you only have the old 'docker-compose' binary, upgrade Docker."
 
 log "preflight ok (docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '?'), compose $(docker compose version --short 2>/dev/null || echo '?'))"
 
@@ -110,7 +110,7 @@ TAG="$(grep -E '^VECTORSTEP_VERSION=' .env | cut -d= -f2)"; TAG="${TAG:-latest}"
 PULL_ERR="$(mktemp)"; trap 'rm -f "$PULL_ERR"' EXIT
 
 log "pulling images (tag: $TAG)"
-if ! "${COMPOSE[@]}" pull 2>"$PULL_ERR"; then
+if ! "${COMPOSE[@]}" pull </dev/null 2>"$PULL_ERR"; then
   # `latest` only exists once a vX.Y.Z release has been tagged. Until then fall
   # back to `edge`, which every push to the default branch publishes, rather
   # than failing an install for a reason the user can do nothing about. An
@@ -118,7 +118,7 @@ if ! "${COMPOSE[@]}" pull 2>"$PULL_ERR"; then
   if [ "$TAG" = "latest" ] && grep -qiE 'manifest unknown|not found|denied' "$PULL_ERR"; then
     warn "no :latest images are published yet — falling back to :edge (latest default-branch build)."
     sed -i.bak "s|^VECTORSTEP_VERSION=.*|VECTORSTEP_VERSION=edge|" .env && rm -f .env.bak
-    "${COMPOSE[@]}" pull || { cat "$PULL_ERR" >&2; die "image pull failed for :edge as well."; }
+    "${COMPOSE[@]}" pull </dev/null || { cat "$PULL_ERR" >&2; die "image pull failed for :edge as well."; }
   else
     cat "$PULL_ERR" >&2
     die "image pull failed for tag '$TAG'. Check the tag exists, or re-run with --version edge."
@@ -134,15 +134,15 @@ fi
 seed_from_image() { # seed_from_image <image> <path-in-image> <host-dir> <label>
   [ -n "$(ls -A "$3" 2>/dev/null)" ] && { skip "$3 not empty, leaving your files alone"; return; }
   local cid
-  cid="$(docker create "$1" 2>/dev/null)" || return 0
-  if docker cp "$cid:$2/." "$3/" >/dev/null 2>&1; then
+  cid="$(docker create "$1" </dev/null 2>/dev/null)" || return 0
+  if docker cp "$cid:$2/." "$3/" </dev/null >/dev/null 2>&1; then
     log "seeded sample $4 into $3"
   fi
-  docker rm -f "$cid" >/dev/null 2>&1 || true
+  docker rm -f "$cid" </dev/null >/dev/null 2>&1 || true
 }
 
-VS_IMAGE="$(docker compose config --images 2>/dev/null | grep -m1 '/vectorstep:')"
-GW_IMAGE="$("${COMPOSE[@]}" config --images 2>/dev/null | grep -m1 '/vectorstep-gateway:')"
+VS_IMAGE="$(docker compose config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep:')"
+GW_IMAGE="$("${COMPOSE[@]}" config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep-gateway:')"
 
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/pipelines "$INSTALL_DIR/pipelines" "pipelines"
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/steps     "$INSTALL_DIR/steps"     "steps"
@@ -161,13 +161,13 @@ if [ "$WITH_GATEWAY" = 1 ]; then
     skip "gateway token already in .env"
   else
     log "starting gateway to mint its operator token"
-    "${COMPOSE[@]}" up -d gateway
+    "${COMPOSE[@]}" up -d gateway </dev/null
 
     TOKEN=""
     for _ in $(seq 1 30); do
       TOKEN="$("${COMPOSE[@]}" exec -T gateway python -c \
         "import json;print(json.load(open('/data/identity/device-auth.json'))['tokens']['operator']['token'])" \
-        2>/dev/null | tr -d '\r\n' )" || true
+        </dev/null 2>/dev/null | tr -d '\r\n' )" || true
       [ -n "$TOKEN" ] && break
       sleep 2
     done
@@ -186,7 +186,7 @@ fi
 # --- Start -----------------------------------------------------------------
 
 log "starting stack"
-"${COMPOSE[@]}" up -d
+"${COMPOSE[@]}" up -d </dev/null
 
 # --- Done ------------------------------------------------------------------
 
