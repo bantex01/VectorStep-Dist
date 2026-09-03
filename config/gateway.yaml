@@ -1,0 +1,23 @@
+# VectorStep Gateway configuration.
+#
+# Edited in place — install.sh never overwrites an existing copy of this file.
+
+server:
+  host: 0.0.0.0
+  port: 18780
+
+agents_dir: /data/agents
+
+identity:
+  path: /data/identity
+
+logging:
+  dir: /data/logs
+
+# An empty map is valid and /health stays "ok". Add MCP servers here once you
+# need real tools; npx-based servers fetch on first startup.
+mcp_servers: {}
+
+providers:
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}

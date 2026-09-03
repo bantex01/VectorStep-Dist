@@ -1,0 +1,60 @@
+# VectorStep evaluation/production-lite stack, pulled from published images.
+#
+# This file is fetched into ~/.vectorstep by install.sh; you can also drive it
+# directly with `docker compose` from that directory. Unlike the compose file
+# in the (private) source repo, there are no `build:` blocks here — everything
+# comes from ghcr.io.
+#
+# Image tag comes from VECTORSTEP_VERSION in .env; `latest` tracks the most
+# recent release, `edge` tracks the default branch.
+
+services:
+  vectorstep:
+    image: ghcr.io/bantex01/vectorstep:${VECTORSTEP_VERSION:-latest}
+    restart: unless-stopped
+    ports: ["${VECTORSTEP_PORT:-8000}:8000"]
+    environment:
+      CONFIG_PATH: /etc/vectorstep/config.yaml
+      VECTORSTEP_GATEWAY_TOKEN: ${VECTORSTEP_GATEWAY_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./config/vectorstep.yaml:/etc/vectorstep/config.yaml:ro
+      # Authoring directories live on the host so you can edit pipelines and
+      # steps with a normal editor. Everything else the service writes — the
+      # database, artifacts, logs — stays in the named volume.
+      - ./pipelines:/data/pipelines
+      - ./steps:/data/steps
+      - vectorstep-data:/data
+
+  gateway:
+    image: ghcr.io/bantex01/vectorstep-gateway:${VECTORSTEP_VERSION:-latest}
+    profiles: [gateway]
+    restart: unless-stopped
+    ports: ["${GATEWAY_PORT:-18780}:18780"]
+    environment:
+      VECTORSTEP_GATEWAY_CONFIG: /etc/vectorstep-gateway/config.yaml
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./config/gateway.yaml:/etc/vectorstep-gateway/config.yaml:ro
+      # Agent definitions are authored on the host, same reasoning as above.
+      # The Gateway's identity and token stay in the named volume, so they
+      # survive a recreate.
+      - ./agents:/data/agents
+      - gateway-data:/data
+
+  # Optional. `docker compose --profile postgres up -d`, and point
+  # database.url in config/vectorstep.yaml at it.
+  postgres:
+    image: postgres:16
+    profiles: [postgres]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vectorstep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vectorstep}
+      POSTGRES_DB: vectorstep
+    volumes: [pg-data:/var/lib/postgresql/data]
+
+volumes:
+  vectorstep-data: {}
+  gateway-data: {}
+  pg-data: {}

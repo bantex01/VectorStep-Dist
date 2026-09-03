@@ -1,0 +1,134 @@
+VectorStep END USER LICENCE AGREEMENT
+
+Copyright (c) 2026 Alex Dalton. All rights reserved.
+
+This is a legal agreement between you ("You") and Alex Dalton ("the Licensor")
+covering VectorStep ("the Software"). By downloading, installing, or using the
+Software, You agree to these terms. If You do not agree, do not install or use
+the Software.
+
+1. DEFINITIONS
+
+   "Software" means the version of VectorStep supplied to You, in whatever
+   form (binary, container image, installer, or source), together with its
+   accompanying documentation.
+
+   "Third-Party Components" means the separately-licensed components
+   redistributed with the Software and identified in the accompanying
+   THIRD-PARTY-NOTICES file.
+
+2. LICENCE GRANT
+
+   Subject to Your compliance with this agreement, the Licensor grants You a
+   non-exclusive, non-transferable, worldwide, royalty-free licence to install
+   and use the Software, for any purpose including commercial purposes, on any
+   number of machines You control.
+
+   You own the data You process with the Software and any output it produces.
+   Nothing in this agreement gives the Licensor any interest in either.
+
+   No fee is charged for this licence.
+
+3. RESTRICTIONS
+
+   Except to the extent that a restriction below is prohibited by applicable
+   law, or is expressly permitted by the licence of a Third-Party Component,
+   You may not:
+
+   (a) distribute, publish, sublicense, rent, lease, lend, sell, or otherwise
+       make the Software available to any third party;
+
+   (b) modify the Software, or create derivative works based on it;
+
+   (c) reverse engineer, decompile, or disassemble the Software, or otherwise
+       attempt to derive its source code. Where the law of Your jurisdiction
+       grants You a non-excludable right to decompile for interoperability
+       purposes -- including section 50B of the Copyright, Designs and Patents
+       Act 1988 in the United Kingdom -- that right is unaffected by this
+       clause, and You are asked to contact the Licensor first, who may be
+       able to supply the necessary information;
+
+   (d) remove, obscure, or alter any copyright, trademark, or other proprietary
+       notice in or on the Software;
+
+   (e) use the name "VectorStep", or any associated logo or mark, in a way that
+       implies endorsement of, or affiliation with, Your own product or service.
+
+4. OWNERSHIP
+
+   The Software is licensed, not sold. The Licensor retains all right, title,
+   and interest in and to the Software, including all intellectual property
+   rights in it. All rights not expressly granted in clause 2 are reserved.
+
+5. THIRD-PARTY COMPONENTS
+
+   The Software redistributes Third-Party Components under their own licences,
+   which are reproduced in the accompanying THIRD-PARTY-NOTICES file. Those
+   licences govern Your use of those components, and nothing in this agreement
+   limits any right granted to You under them.
+
+6. FEEDBACK
+
+   If You send the Licensor any suggestion, bug report, feature request, or
+   other feedback about the Software, the Licensor may use it for any purpose
+   without restriction, obligation, attribution, or payment to You. Do not send
+   the Licensor source code, patches, or any other material You do not wish to
+   be used on those terms; the Licensor does not accept code contributions.
+
+7. VERSIONS AND TERM
+
+   This agreement applies to the version of the Software supplied to You. The
+   Licensor may release later versions under different terms; those terms will
+   govern those versions, and do not retroactively change Your rights in a
+   version You already hold.
+
+   This licence continues until terminated. It terminates automatically if You
+   breach any term of it, at which point You must cease using the Software and
+   destroy all copies in Your possession. Clauses 4, 8, 9, and 10 survive
+   termination.
+
+8. NO SUPPORT OR WARRANTY
+
+   The Software is provided free of charge and the Licensor is under no
+   obligation to provide maintenance, support, updates, or bug fixes.
+
+   TO THE FULLEST EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS",
+   WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+   TO THE IMPLIED WARRANTIES OF SATISFACTORY QUALITY, MERCHANTABILITY, FITNESS
+   FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. THE LICENSOR DOES NOT
+   WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED OR ERROR-FREE.
+
+   The Software orchestrates automated agents that may take actions and incur
+   costs with third-party services. You are solely responsible for what You
+   configure it to do, for the credentials and permissions You give it, and for
+   any charges incurred with any third-party provider.
+
+9. LIMITATION OF LIABILITY
+
+   Nothing in this agreement excludes or limits the Licensor's liability for
+   death or personal injury caused by negligence, for fraud or fraudulent
+   misrepresentation, or for any other liability that cannot lawfully be
+   excluded or limited.
+
+   Subject to the paragraph above, and to the fullest extent permitted by law,
+   the Licensor shall not be liable for any loss of profit, loss of revenue,
+   loss of data, business interruption, or any indirect, special, incidental,
+   or consequential loss arising out of or in connection with the Software or
+   this agreement, however caused; and the Licensor's total aggregate liability
+   arising out of or in connection with this agreement shall not exceed one
+   hundred pounds sterling (GBP 100).
+
+10. GENERAL
+
+   This agreement constitutes the entire agreement between You and the Licensor
+   in relation to the Software and supersedes any prior understanding. If any
+   provision is held unenforceable, the remainder continues in full force.
+
+   No failure or delay by the Licensor in exercising any right is a waiver of
+   it.
+
+   This agreement is governed by the law of England and Wales, and the courts
+   of England and Wales have exclusive jurisdiction, save that the Licensor may
+   seek injunctive relief in any jurisdiction.
+
+Contact: alex@vectorstep.io

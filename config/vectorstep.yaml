@@ -1,0 +1,29 @@
+# VectorStep service configuration.
+#
+# Edited in place — install.sh never overwrites an existing copy of this file,
+# so re-running the installer is safe.
+
+server:
+  host: 0.0.0.0
+  port: 8000
+
+database:
+  # Four slashes = absolute path inside the container's /data volume.
+  url: sqlite+aiosqlite:////data/db/runs.db
+  # For Postgres (bring it up with `--profile postgres`):
+  # url: postgresql+asyncpg://vectorstep:vectorstep@postgres:5432/vectorstep
+
+pipeline_config_dir: /data/pipelines
+step_library_dir: /data/steps
+
+artifacts:
+  dir: /data/artifacts
+
+logging:
+  dir: /data/logs
+
+executors:
+  gateway:
+    url: ws://gateway:18780/rpc
+    token: ${VECTORSTEP_GATEWAY_TOKEN}
+    rest_url: http://gateway:18780
