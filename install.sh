@@ -22,6 +22,7 @@ set -euo pipefail
 INSTALL_DIR="${VECTORSTEP_HOME:-$HOME/.vectorstep}"
 DIST_BASE="${VECTORSTEP_DIST_BASE:-https://raw.githubusercontent.com/bantex01/VectorStep-Dist/main}"
 WITH_GATEWAY=1
+WITH_POSTGRES=0
 VERSION_TAG=""
 
 log()  { printf '==> %s\n' "$1"; }
@@ -34,6 +35,7 @@ die()  { printf 'error: %s\n' "$1" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --service-only) WITH_GATEWAY=0; shift ;;
+    --postgres)     WITH_POSTGRES=1; shift ;;
     --dir)          INSTALL_DIR="${2:?--dir needs a path}"; shift 2 ;;
     --version)      VERSION_TAG="${2:?--version needs a tag}"; shift 2 ;;
     -h|--help)
@@ -43,6 +45,9 @@ VectorStep installer.
   --service-only   Skip the Gateway. Use this if you drive VectorStep with
                    OpenClaw, with webhook/human/notify-only pipelines, or if
                    the Gateway already runs elsewhere.
+  --postgres       Run PostgreSQL instead of SQLite, in its own container,
+                   with a generated password. Choose this at FIRST install —
+                   switching later does not migrate existing data.
   --dir PATH       Install somewhere other than ~/.vectorstep.
   --version TAG    Image tag to run (default: latest).
 
@@ -80,6 +85,8 @@ fetch() { # fetch <remote-path> <local-path> <overwrite:yes|no>
 # The compose file is ours to manage, so it is always refreshed. Config files
 # belong to the user and are only ever written once.
 fetch docker-compose.yaml     docker-compose.yaml     yes
+FRESH_CONFIG=0
+[ -f config/vectorstep.yaml ] || FRESH_CONFIG=1
 fetch config/vectorstep.yaml  config/vectorstep.yaml  no
 [ "$WITH_GATEWAY" = 1 ] && fetch config/gateway.yaml config/gateway.yaml no
 
@@ -96,6 +103,36 @@ else
   fi
 fi
 
+# --- PostgreSQL ------------------------------------------------------------
+# The service reads database.url from config/vectorstep.yaml, which is only
+# written on a fresh install — so this can only rewire a config we just created.
+# Pointing an existing SQLite install at Postgres would silently start from an
+# empty schema, so refuse and say so instead.
+
+if [ "$WITH_POSTGRES" = 1 ]; then
+  # Validate before writing anything, so a refusal leaves the install exactly
+  # as it was rather than half-modified.
+  if [ "$FRESH_CONFIG" != 1 ] && grep -q '^  url: sqlite' config/vectorstep.yaml; then
+    die "config/vectorstep.yaml already exists and still uses SQLite. Switching an existing install to PostgreSQL does not migrate your data — it would start from an empty schema. To move deliberately: back up, then either edit database.url yourself, or reinstall to a clean --dir."
+  fi
+
+  if grep -q '^POSTGRES_PASSWORD=vectorstep$' .env; then
+    PGPW="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PGPW|" .env && rm -f .env.bak
+    log "generated a PostgreSQL password into .env"
+  else
+    PGPW="$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)"
+    skip "keeping the PostgreSQL password already in .env"
+  fi
+
+  if grep -q '^  url: sqlite' config/vectorstep.yaml; then
+    sed -i.bak "s|^  url: sqlite.*|  url: postgresql+asyncpg://vectorstep:$PGPW@postgres:5432/vectorstep|" config/vectorstep.yaml && rm -f config/vectorstep.yaml.bak
+    log "config/vectorstep.yaml pointed at PostgreSQL"
+  else
+    skip "config/vectorstep.yaml already points somewhere other than SQLite"
+  fi
+fi
+
 if [ -n "$VERSION_TAG" ]; then
   sed -i.bak "s|^VECTORSTEP_VERSION=.*|VECTORSTEP_VERSION=$VERSION_TAG|" .env && rm -f .env.bak
   log "pinned images to $VERSION_TAG"
@@ -103,6 +140,7 @@ fi
 
 COMPOSE=(docker compose)
 [ "$WITH_GATEWAY" = 1 ] && COMPOSE+=(--profile gateway)
+[ "$WITH_POSTGRES" = 1 ] && COMPOSE+=(--profile postgres)
 
 # --- Pull ------------------------------------------------------------------
 
@@ -196,6 +234,7 @@ echo
 log "VectorStep is running — UI at http://localhost:$PORT/ui"
 echo
 echo "    API docs     : http://localhost:$PORT/docs"
+[ "$WITH_POSTGRES" = 1 ] && echo "    Database     : PostgreSQL (container; password in .env)"
 echo "    Installed in : $INSTALL_DIR"
 echo "    Pipelines    : $INSTALL_DIR/pipelines   (edit on the host; the container sees them)"
 echo "    Steps        : $INSTALL_DIR/steps"
