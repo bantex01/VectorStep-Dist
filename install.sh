@@ -184,6 +184,7 @@ GW_IMAGE="$("${COMPOSE[@]}" config --images </dev/null 2>/dev/null | grep -m1 '/
 
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/pipelines "$INSTALL_DIR/pipelines" "pipelines"
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/steps     "$INSTALL_DIR/steps"     "steps"
+[ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/webhooks  "$INSTALL_DIR/webhooks"  "webhooks"
 if [ "$WITH_GATEWAY" = 1 ] && [ -n "$GW_IMAGE" ]; then
   seed_from_image "$GW_IMAGE" /app/samples/agents "$INSTALL_DIR/agents" "agents"
 fi

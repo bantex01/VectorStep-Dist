@@ -13,6 +13,12 @@ services:
     image: ghcr.io/bantex01/vectorstep:${VECTORSTEP_VERSION:-latest}
     restart: unless-stopped
     ports: ["${VECTORSTEP_PORT:-8000}:8000"]
+    # Every var in .env reaches the container this way, so a new ${VAR}
+    # referenced from config/vectorstep.yaml (a notification channel's
+    # token, a step's API key) never needs a compose-file edit — just add
+    # it to .env. The explicit entries below are the ones the installer
+    # itself depends on, kept visible rather than relying on env_file alone.
+    env_file: .env
     environment:
       CONFIG_PATH: /etc/vectorstep/config.yaml
       VECTORSTEP_GATEWAY_TOKEN: ${VECTORSTEP_GATEWAY_TOKEN:-}
@@ -35,6 +41,9 @@ services:
     profiles: [gateway]
     restart: unless-stopped
     ports: ["${GATEWAY_PORT:-18780}:18780"]
+    # See the vectorstep service's env_file comment above — the same reasoning
+    # applies here for mcp_servers' ${VAR} placeholders and provider keys.
+    env_file: .env
     environment:
       VECTORSTEP_GATEWAY_CONFIG: /etc/vectorstep-gateway/config.yaml
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
