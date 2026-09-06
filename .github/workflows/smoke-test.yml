@@ -1,0 +1,68 @@
+name: compose smoke test
+
+# The install path is the product. This runs install.sh exactly the way a
+# real user does — piped into bash, so stdin is the script body itself —
+# against the images and compose file from this exact commit, and confirms
+# both services actually come up healthy. This is what would have caught the
+# `curl | bash` stdin-theft bug before it shipped (see README history).
+#
+# GHCR_READ_TOKEN: the vectorstep/vectorstep-gateway packages are private and
+# owned by different repos (VectorStep, VectorStep-Gateway), so the default
+# GITHUB_TOKEN here has no read access to them. Needs a PAT with at least
+# read:packages scope, added as a repo secret. Once both packages go public
+# again (see ROADMAP.md's "Must happen before go-live", item 9), this step
+# becomes a no-op and could be dropped, but leaving it in place doesn't hurt.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *' # daily, off the hour — catch drift even with no pushes
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Run install.sh via curl | bash, from this commit's files
+        env:
+          # file:// so fetch() reads this checkout's own docker-compose.yaml /
+          # config templates instead of the public raw URL — the repo is
+          # deliberately private pre-launch (see ROADMAP.md), so that URL
+          # 404s today. Once public again this override stops being load-
+          # bearing but stays correct either way: it always tests this exact
+          # commit's files, never whatever happens to be live on main.
+          VECTORSTEP_DIST_BASE: file://${{ github.workspace }}
+        run: |
+          cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home"
+
+      - name: Wait for both services to report healthy
+        run: |
+          for i in $(seq 1 30); do
+            vs=$(curl -sf http://localhost:8000/health || true)
+            gw=$(curl -sf http://localhost:18780/health || true)
+            if [ -n "$vs" ] && [ -n "$gw" ]; then
+              echo "vectorstep: $vs"
+              echo "gateway:    $gw"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::services never became healthy within 60s"
+          exit 1
+
+      - name: Dump container logs on failure
+        if: failure()
+        working-directory: ${{ github.workspace }}/.smoke-home
+        run: docker compose --profile gateway logs || true
+
+      - name: Tear down
+        if: always()
+        working-directory: ${{ github.workspace }}/.smoke-home
+        run: docker compose --profile gateway down -v || true
