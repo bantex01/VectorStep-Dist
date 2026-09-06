@@ -179,8 +179,16 @@ seed_from_image() { # seed_from_image <image> <path-in-image> <host-dir> <label>
   docker rm -f "$cid" </dev/null >/dev/null 2>&1 || true
 }
 
-VS_IMAGE="$(docker compose config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep:')"
-GW_IMAGE="$("${COMPOSE[@]}" config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep-gateway:')"
+# `|| true` on both: under `set -e`, a `VAR="$(cmd | grep ...)"` assignment
+# dies the whole script the instant grep finds no match — silently, with no
+# error message, since grep itself prints nothing on a clean no-match. That
+# would turn "couldn't resolve an image name" into an inexplicable install
+# failure instead of the graceful skip the `[ -n "$VS_IMAGE" ]` checks below
+# already assume. Confirmed by reproducing it directly, not just reasoning
+# about it — this is what silently killed a CI smoke-test run on 2026-09-06
+# with zero output after the image pull.
+VS_IMAGE="$(docker compose config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep:' || true)"
+GW_IMAGE="$("${COMPOSE[@]}" config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep-gateway:' || true)"
 
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/pipelines "$INSTALL_DIR/pipelines" "pipelines"
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/steps     "$INSTALL_DIR/steps"     "steps"
