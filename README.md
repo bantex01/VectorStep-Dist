@@ -75,4 +75,4 @@ Bundled open source components are listed with their full licence texts in
 [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt).
 
 Documentation: <https://vectorstep.io>. Questions and bug reports:
-**alex@vectorstep.io**.
+**contact@vectorstep.io**.
