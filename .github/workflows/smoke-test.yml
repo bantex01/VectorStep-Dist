@@ -43,10 +43,15 @@ jobs:
           cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home"
 
       - name: Wait for both services to report healthy
+        # The Gateway publishes no host port by default (SPEC-tls-and-network.md
+        # §3.6) — it's only reachable on the compose network, not at
+        # localhost:18780 on this runner. Check its health from inside its own
+        # container instead of from the host.
+        working-directory: ${{ github.workspace }}/.smoke-home
         run: |
           for i in $(seq 1 30); do
             vs=$(curl -sf http://localhost:8000/health || true)
-            gw=$(curl -sf http://localhost:18780/health || true)
+            gw=$(docker compose exec -T gateway curl -sf http://localhost:18780/health || true)
             if [ -n "$vs" ] && [ -n "$gw" ]; then
               echo "vectorstep: $vs"
               echo "gateway:    $gw"
