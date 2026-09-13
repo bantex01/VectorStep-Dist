@@ -16,6 +16,15 @@ data:
     server:
       host: 0.0.0.0
       port: 18780
+      # tls:
+      #   cert: /etc/vectorstep-gateway/tls/server.crt
+      #   key: /etc/vectorstep-gateway/tls/server.key
+      #   # key_password: ${VS_TLS_KEY_PASSWORD}
+      #   # client_ca: /etc/vectorstep-gateway/tls/ca.crt   # presence enables mTLS
+      # Mount path above matches the commented "tls" secret volume in
+      # deployment.yaml. Enable this to give the service a verified wss://
+      # hop (see ../service/configmap.example.yaml's commented executors.gateway
+      # block) rather than relying on the namespace's NetworkPolicy alone.
 
     agents_dir: /data/agents
 

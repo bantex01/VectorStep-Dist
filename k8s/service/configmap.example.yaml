@@ -14,6 +14,16 @@ data:
     server:
       host: 0.0.0.0
       port: 8000
+      # tls:
+      #   cert: /etc/vectorstep/tls/server.crt
+      #   key: /etc/vectorstep/tls/server.key
+      #   # key_password: ${VS_TLS_KEY_PASSWORD}
+      #   # client_ca: /etc/vectorstep/tls/ca.crt   # presence enables mTLS
+      # Mount path above matches the commented "tls" secret volume in
+      # deployment.yaml. Most enterprises terminate the browser edge at an
+      # Ingress instead (see ingress.example.yaml) and leave this block unset
+      # — use it for a hop that isn't behind that Ingress, e.g. a direct
+      # service-to-service caller outside a NetworkPolicy-protected namespace.
 
     database:
       url: sqlite+aiosqlite:////data/db/runs.db   # four slashes = absolute path
@@ -43,10 +53,25 @@ data:
 
     executors:
       gateway:
+        # In-cluster service-to-service traffic inside a NetworkPolicy-protected
+        # namespace is a defensible place to leave this as ws:// — that's why
+        # it's the working default here. Once the Gateway terminates TLS (see
+        # gateway/configmap.example.yaml's commented tls: block), switch both
+        # this and rest_url below, and add tls.ca if it's a private CA:
+        # url: wss://vectorstep-gateway:18780/rpc
+        # tls:
+        #   ca: /etc/vectorstep/tls/ca.crt
         url: ws://vectorstep-gateway:18780/rpc   # Gateway's in-cluster Service name:port
         token: ${VECTORSTEP_GATEWAY_TOKEN}       # from the Secret via envFrom — see README.md
         rest_url: http://vectorstep-gateway:18780
+        # rest_url: https://vectorstep-gateway:18780   # matches the wss:// choice above
 
     # auth:
     #   token: ${VECTORSTEP_WEBHOOK_TOKEN}   # protect POST /webhook before exposing it — see
     #                                         # https://vectorstep.io/docs/operations/deployment/ for the full auth block.
+
+    security:
+      # A pipeline author gets a shell on this host if this is true — see
+      # https://vectorstep.io/docs/reference/config/ before enabling it.
+      allow_shell_checks: false   # default: false
+      template_sandbox: true      # default: true

@@ -1,0 +1,38 @@
+# EXAMPLE — copy, edit, and apply. Do not apply this file verbatim.
+#
+# service.yaml's ClusterIP Service is not directly exposed outside the
+# cluster — this Ingress is the recommended way to reach it. Most
+# enterprises terminate browser-facing TLS at the ingress controller rather
+# than in-process in the pod (see the service's own server.tls block in
+# configmap.example.yaml, which exists for hops that aren't behind an
+# Ingress like this one). Requires an ingress controller (e.g. ingress-nginx)
+# already running in the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vectorstep
+  annotations:
+    # If cert-manager is installed and you want it to mint/renew the
+    # certificate automatically instead of supplying tls.secretName
+    # yourself below:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  # ingressClassName: nginx   # match whatever ingress controller you run
+  tls:
+    - hosts:
+        - vectorstep.example.com
+      # Pre-provisioned: kubectl create secret tls vectorstep-ingress-tls
+      #   --cert=... --key=...
+      # Or let cert-manager populate this secret if the annotation above is set.
+      secretName: vectorstep-ingress-tls
+  rules:
+    - host: vectorstep.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vectorstep
+                port:
+                  number: 8000

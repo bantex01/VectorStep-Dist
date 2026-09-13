@@ -27,3 +27,9 @@ executors:
     url: ws://gateway:18780/rpc
     token: ${VECTORSTEP_GATEWAY_TOKEN}
     rest_url: http://gateway:18780
+
+security:
+  # A pipeline author gets a shell on this host if this is true — see the
+  # config reference before enabling it.
+  allow_shell_checks: false   # default: false
+  template_sandbox: true      # default: true

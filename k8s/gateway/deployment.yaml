@@ -14,20 +14,66 @@ spec:
       labels:
         app: vectorstep-gateway
     spec:
+      # fsGroup matters because the PVC below must arrive group-writable for the
+      # non-root process to use it — without it most storage classes mount the
+      # volume root-owned and the container crashes on first write. The uid/gid
+      # match the image's `useradd -u 1000` (Dockerfile) — if that ever changes,
+      # this manifest breaks with it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: vectorstep-gateway
           # Pin to a specific released tag in production (see
           # https://vectorstep.io/docs/about/status-and-support/#versions-and-releases); :edge tracks the default branch,
           # :latest tracks the most recent release.
           image: ghcr.io/bantex01/vectorstep-gateway:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Starting values — tune for your workload, don't take these as
+          # authoritative. Higher than the service's because this container
+          # spawns MCP server subprocesses itself, and limits.max_concurrent_runs
+          # in config.yaml directly multiplies memory use — raise the limit if
+          # you raise that.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
           ports:
             - containerPort: 18780
+          env:
+            # readOnlyRootFilesystem breaks npx/uvx-based MCP servers otherwise —
+            # both download packages at runtime and write to caches under $HOME,
+            # and the image's /home/vectorstep (useradd -m) is read-only under
+            # this setting. Redirecting the caches onto the existing PVC is a
+            # bonus, not just a workaround: they persist across restarts instead
+            # of re-downloading every pod start.
+            - name: HOME
+              value: /data/home
+            - name: NPM_CONFIG_CACHE
+              value: /data/home/.npm
+            - name: XDG_CACHE_HOME
+              value: /data/home/.cache
           envFrom:
             # kubectl create secret generic vectorstep-gateway-secrets \
+            #   --from-literal=VECTORSTEP_GATEWAY_ADMIN_TOKEN="$(openssl rand -hex 24)" \
+            #   --from-literal=VECTORSTEP_GATEWAY_INVOKE_TOKEN="$(openssl rand -hex 24)" \
             #   --from-literal=ANTHROPIC_API_KEY=... \
             #   --from-literal=GRAFANA_TOKEN=...   # any MCP server env your config needs
             # Feeds the ${VAR} placeholders in configmap.example.yaml — no secret
-            # values are ever baked into the ConfigMap or the image.
+            # values are ever baked into the ConfigMap or the image. The two
+            # GATEWAY_*_TOKEN vars make the identity declarative (device-auth.json
+            # is never written when both are set) — see k8s/README.md.
             - secretRef:
                 name: vectorstep-gateway-secrets
           volumeMounts:
@@ -36,6 +82,13 @@ spec:
               readOnly: true
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            # Uncomment together with configmap.example.yaml's commented
+            # server.tls block and the "tls" volume below:
+            # - name: tls
+            #   mountPath: /etc/vectorstep-gateway/tls
+            #   readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -55,3 +108,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: vectorstep-gateway-data
+        - name: tmp
+          emptyDir: {}
+        # - name: tls
+        #   secret:
+        #     secretName: vectorstep-gateway-tls   # kubectl create secret tls vectorstep-gateway-tls --cert=... --key=...
+        #   # Also switch the two httpGet probes above to scheme: HTTPS once this is live —
+        #   # they default to HTTP and TLS termination makes plain :18780 stop answering.

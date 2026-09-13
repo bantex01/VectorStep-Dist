@@ -284,6 +284,30 @@ if [ "$NATIVE" = 1 ]; then
       chown "root:$NATIVE_USER" "$ETC/vectorstep/env"; chmod 640 "$ETC/vectorstep/env"
       log "took ANTHROPIC_API_KEY from your environment"
     fi
+
+    # SPEC-auth-and-roles.md: VectorStep refuses to start with no auth.tokens
+    # configured. Same two-token mint as the container path, into
+    # $ETC/vectorstep/env and $ETC/vectorstep/config.yaml instead of .env/config/.
+    NATIVE_VS_ADMIN_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    NATIVE_VS_WEBHOOK_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    touch "$ETC/vectorstep/env"
+    printf 'VECTORSTEP_ADMIN_TOKEN=%s\nVECTORSTEP_WEBHOOK_TOKEN=%s\n' \
+      "$NATIVE_VS_ADMIN_TOKEN" "$NATIVE_VS_WEBHOOK_TOKEN" >> "$ETC/vectorstep/env"
+    chown "root:$NATIVE_USER" "$ETC/vectorstep/env"; chmod 640 "$ETC/vectorstep/env"
+    if ! grep -q '^auth:' "$ETC/vectorstep/config.yaml"; then
+      cat >> "$ETC/vectorstep/config.yaml" <<'EOF'
+
+auth:
+  tokens:
+    - name: admin
+      token: ${VECTORSTEP_ADMIN_TOKEN}
+      role: admin
+    - name: webhook
+      token: ${VECTORSTEP_WEBHOOK_TOKEN}
+      role: webhook
+EOF
+    fi
+    log "generated VectorStep auth tokens into $ETC/vectorstep/env"
   fi
 
   if [ "$WITH_GATEWAY" = 1 ]; then
@@ -325,21 +349,25 @@ if [ "$NATIVE" = 1 ]; then
     if grep -q '^VECTORSTEP_GATEWAY_TOKEN=.\+' "$ETC/vectorstep/env" 2>/dev/null; then
       skip "gateway token already in $ETC/vectorstep/env"
     else
-      log "minting the gateway's operator token"
+      log "minting the gateway's tokens"
       TOKEN=""
+      NATIVE_ADMIN_TOKEN=""
       DEVICE_AUTH="$VARLIB/vectorstep-gateway/identity/device-auth.json"
       for _ in $(seq 1 30); do
         if [ -f "$DEVICE_AUTH" ]; then
-          # device-auth.json is pretty-printed (one key per line), so "token"
-          # and its value are never on the same line as "operator" — matching
-          # both on one line (as an earlier version of this did) never matches
-          # at all. "token": is unique to the operator entry (the sibling key
-          # is "tokens", which this pattern doesn't match). `|| true` matters:
-          # under pipefail, a plain no-match grep here — the normal case on
-          # every iteration but the last — would otherwise abort the whole
-          # script via set -e, not just this loop.
-          TOKEN="$(grep '"token":' "$DEVICE_AUTH" 2>/dev/null | head -1 \
+          # device-auth.json is pretty-printed (one key per line): "admin"
+          # and "invoke" each own a block with their own "token": line, so
+          # grabbing the first "token": line in the file (an earlier version
+          # of this did) now gets the WRONG one — admin sorts first. Scope
+          # the match to two lines after the "invoke"/"admin" key line
+          # instead. `|| true`/`|| TOKEN=""` matter: under pipefail, a plain
+          # no-match grep here — the normal case on every iteration but the
+          # last — would otherwise abort the whole script via set -e, not
+          # just this loop.
+          TOKEN="$(grep -A 2 '"invoke": {' "$DEVICE_AUTH" 2>/dev/null | grep '"token":' | head -1 \
             | sed -E 's/.*"token":[[:space:]]*"([^"]*)".*/\1/')" || TOKEN=""
+          NATIVE_ADMIN_TOKEN="$(grep -A 2 '"admin": {' "$DEVICE_AUTH" 2>/dev/null | grep '"token":' | head -1 \
+            | sed -E 's/.*"token":[[:space:]]*"([^"]*)".*/\1/')" || NATIVE_ADMIN_TOKEN=""
         fi
         [ -n "$TOKEN" ] && break
         sleep 2
@@ -353,10 +381,10 @@ if [ "$NATIVE" = 1 ]; then
           printf 'VECTORSTEP_GATEWAY_TOKEN=%s\n' "$TOKEN" >> "$ETC/vectorstep/env"
         fi
         chown "root:$NATIVE_USER" "$ETC/vectorstep/env"; chmod 640 "$ETC/vectorstep/env"
-        log "gateway operator token written to $ETC/vectorstep/env"
+        log "gateway invoke token written to $ETC/vectorstep/env"
       else
-        warn "could not read the gateway's operator token after 60s. VectorStep will still start, but its gateway executor will be unauthenticated. Recover with:"
-        warn "  cat $DEVICE_AUTH   (look for .tokens.operator.token)"
+        warn "could not read the gateway's invoke token after 60s. VectorStep will still start, but its gateway executor will be unauthenticated. Recover with:"
+        warn "  cat $DEVICE_AUTH   (look for .tokens.invoke.token)"
         warn "  then put it in VECTORSTEP_GATEWAY_TOKEN= in $ETC/vectorstep/env and: systemctl restart vectorstep"
       fi
     fi
@@ -378,6 +406,19 @@ if [ "$NATIVE" = 1 ]; then
   echo "    Upgrade with : re-run this installer with --native"
   echo "    Uninstall    : re-run with --native --uninstall (add --purge --yes to also remove state)"
   echo
+  if [ -n "${NATIVE_ADMIN_TOKEN:-}" ]; then
+    echo "    Gateway admin token (for a Gateway MCP client, e.g. GATEWAY_OPERATOR_TOKEN):"
+    echo "        $NATIVE_ADMIN_TOKEN"
+    echo "    Not written to any file here — copy it now, or retrieve it later with:"
+    echo "        cat $VARLIB/vectorstep-gateway/identity/device-auth.json"
+    echo
+  fi
+  if [ -n "${NATIVE_VS_ADMIN_TOKEN:-}" ]; then
+    echo "    VectorStep admin token (needed to log into the UI):"
+    echo "        $NATIVE_VS_ADMIN_TOKEN"
+    echo "    Also saved in $ETC/vectorstep/env (VECTORSTEP_ADMIN_TOKEN)."
+    echo
+  fi
 
   if ! grep -q '^ANTHROPIC_API_KEY=.\+' "$ETC/vectorstep/env" 2>/dev/null; then
     warn "ANTHROPIC_API_KEY is not set in $ETC/vectorstep/env — agent steps will fail until you add it and: systemctl restart vectorstep"
@@ -461,6 +502,45 @@ if [ "$WITH_POSTGRES" = 1 ]; then
   fi
 fi
 
+# --- VectorStep auth tokens --------------------------------------------------
+# SPEC-auth-and-roles.md: VectorStep refuses to start with no auth.tokens
+# configured — the shipped compose config used to produce a service that logs
+# "Webhook auth disabled" on every boot. Mint two tokens the same way the
+# PostgreSQL password above is minted, then (fresh install only) add the
+# matching auth.tokens block to config/vectorstep.yaml.
+
+if grep -q '^VECTORSTEP_ADMIN_TOKEN=.\+' .env; then
+  ADMIN_AUTH_TOKEN="$(grep '^VECTORSTEP_ADMIN_TOKEN=' .env | cut -d= -f2)"
+  skip "keeping the admin auth token already in .env"
+else
+  ADMIN_AUTH_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  sed -i.bak "s|^VECTORSTEP_ADMIN_TOKEN=.*|VECTORSTEP_ADMIN_TOKEN=$ADMIN_AUTH_TOKEN|" .env && rm -f .env.bak
+  log "generated a VectorStep admin auth token into .env"
+fi
+
+if grep -q '^VECTORSTEP_WEBHOOK_TOKEN=.\+' .env; then
+  skip "keeping the webhook auth token already in .env"
+else
+  WEBHOOK_AUTH_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  sed -i.bak "s|^VECTORSTEP_WEBHOOK_TOKEN=.*|VECTORSTEP_WEBHOOK_TOKEN=$WEBHOOK_AUTH_TOKEN|" .env && rm -f .env.bak
+  log "generated a VectorStep webhook auth token into .env"
+fi
+
+if [ "$FRESH_CONFIG" = 1 ] && ! grep -q '^auth:' config/vectorstep.yaml; then
+  cat >> config/vectorstep.yaml <<'EOF'
+
+auth:
+  tokens:
+    - name: admin
+      token: ${VECTORSTEP_ADMIN_TOKEN}
+      role: admin
+    - name: webhook
+      token: ${VECTORSTEP_WEBHOOK_TOKEN}
+      role: webhook
+EOF
+  log "added auth.tokens to config/vectorstep.yaml"
+fi
+
 if [ -n "$VERSION_TAG" ]; then
   sed -i.bak "s|^VECTORSTEP_VERSION=.*|VECTORSTEP_VERSION=$VERSION_TAG|" .env && rm -f .env.bak
   log "pinned images to $VERSION_TAG"
@@ -526,22 +606,27 @@ if [ "$WITH_GATEWAY" = 1 ] && [ -n "$GW_IMAGE" ]; then
 fi
 
 # --- Gateway token bootstrap ----------------------------------------------
-# The Gateway mints its own operator token on first boot; there is no way to
-# pre-supply one. Bring the Gateway up alone, read the token out, write it to
-# .env, and only then start the service — so the service comes up already
-# authenticated instead of logging a warning and needing a restart.
+# The Gateway mints two tokens on first boot (admin + invoke, SPEC-gateway-auth.md);
+# there is no way to pre-supply either. Bring the Gateway up alone, read the
+# invoke token out, write it to .env, and only then start the service — so
+# the service comes up already authenticated instead of logging a warning
+# and needing a restart. The admin token is never written to .env — nothing
+# in the compose stack consumes it, and every container reads .env via
+# env_file — it's only printed at the end for the operator to copy into an
+# MCP client config.
 
+ADMIN_TOKEN=""
 if [ "$WITH_GATEWAY" = 1 ]; then
   if grep -q '^VECTORSTEP_GATEWAY_TOKEN=.\+' .env; then
     skip "gateway token already in .env"
   else
-    log "starting gateway to mint its operator token"
+    log "starting gateway to mint its tokens"
     "${COMPOSE[@]}" up -d gateway </dev/null
 
     TOKEN=""
     for _ in $(seq 1 30); do
       TOKEN="$("${COMPOSE[@]}" exec -T gateway python -c \
-        "import json;print(json.load(open('/data/identity/device-auth.json'))['tokens']['operator']['token'])" \
+        "import json;print(json.load(open('/data/identity/device-auth.json'))['tokens']['invoke']['token'])" \
         </dev/null 2>/dev/null | tr -d '\r\n' )" || true
       [ -n "$TOKEN" ] && break
       sleep 2
@@ -549,11 +634,14 @@ if [ "$WITH_GATEWAY" = 1 ]; then
 
     if [ -n "$TOKEN" ]; then
       sed -i.bak "s|^VECTORSTEP_GATEWAY_TOKEN=.*|VECTORSTEP_GATEWAY_TOKEN=$TOKEN|" .env && rm -f .env.bak
-      log "gateway operator token written to .env"
+      log "gateway invoke token written to .env"
+      ADMIN_TOKEN="$("${COMPOSE[@]}" exec -T gateway python -c \
+        "import json;print(json.load(open('/data/identity/device-auth.json'))['tokens']['admin']['token'])" \
+        </dev/null 2>/dev/null | tr -d '\r\n' )" || ADMIN_TOKEN=""
     else
-      warn "could not read the gateway's operator token after 60s. The stack will still start, but VectorStep's gateway executor will be unauthenticated. Recover with:"
+      warn "could not read the gateway's invoke token after 60s. The stack will still start, but VectorStep's gateway executor will be unauthenticated. Recover with:"
       warn "  cd $INSTALL_DIR && docker compose exec gateway cat /data/identity/device-auth.json"
-      warn "  then put .tokens.operator.token into VECTORSTEP_GATEWAY_TOKEN in .env and re-run this installer."
+      warn "  then put .tokens.invoke.token into VECTORSTEP_GATEWAY_TOKEN in .env and re-run this installer."
     fi
   fi
 fi
@@ -566,9 +654,13 @@ log "starting stack"
 # --- Done ------------------------------------------------------------------
 
 PORT="$(grep -E '^VECTORSTEP_PORT=' .env | cut -d= -f2)"; PORT="${PORT:-8000}"
+BIND="$(grep -E '^VECTORSTEP_BIND=' .env | cut -d= -f2)"; BIND="${BIND:-127.0.0.1}"
 
 echo
 log "VectorStep is running — UI at http://localhost:$PORT/ui"
+if [ "$BIND" != "127.0.0.1" ]; then
+  warn "VECTORSTEP_BIND=$BIND — also reachable at http://$BIND:$PORT/ui. Put TLS in front of it before anyone else on that network hits it."
+fi
 echo
 echo "    API docs     : http://localhost:$PORT/docs"
 [ "$WITH_POSTGRES" = 1 ] && echo "    Database     : PostgreSQL (container; password in .env)"
@@ -579,6 +671,20 @@ echo "    Steps        : $INSTALL_DIR/steps"
 echo "    Manage with  : cd $INSTALL_DIR && docker compose ps|logs|down"
 echo "    Upgrade with : re-run this installer"
 echo
+if [ -n "$ADMIN_TOKEN" ]; then
+  echo "    Gateway admin token (for a Gateway MCP client, e.g. GATEWAY_OPERATOR_TOKEN):"
+  echo "        $ADMIN_TOKEN"
+  echo "    Not written to any file here — copy it now, or retrieve it later with:"
+  echo "        cd $INSTALL_DIR && docker compose exec gateway cat /data/identity/device-auth.json"
+  echo
+fi
+
+if [ -n "${ADMIN_AUTH_TOKEN:-}" ]; then
+  echo "    VectorStep admin token (needed to log into the UI):"
+  echo "        $ADMIN_AUTH_TOKEN"
+  echo "    Also saved in $INSTALL_DIR/.env (VECTORSTEP_ADMIN_TOKEN)."
+  echo
+fi
 
 if ! grep -q '^ANTHROPIC_API_KEY=.\+' .env; then
   warn "ANTHROPIC_API_KEY is not set in $INSTALL_DIR/.env — agent steps will fail until you add it and re-run this installer."

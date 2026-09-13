@@ -1,0 +1,70 @@
+# EXAMPLE — copy, edit, and apply. Do not apply this file verbatim.
+#
+# Two ingress-only NetworkPolicies. Whether either does anything depends on
+# your cluster's CNI actually enforcing NetworkPolicy (Calico, Cilium, and
+# most managed-cluster CNIs do; the default kind/minikube CNI does not) — an
+# unenforced policy gives false assurance, so confirm enforcement before
+# relying on this. Not shipped as a default-applied manifest for that reason.
+#
+# Egress is deliberately not included. Both vectorstep and vectorstep-gateway
+# need to reach arbitrary LLM provider endpoints and whatever systems your
+# pipelines query — a useful egress policy is entirely deployment-specific,
+# and a generic one here would just break real deployments. Write your own
+# once you know what those destinations actually are.
+
+# --- Gateway ingress -------------------------------------------------------
+# The highest-value policy in this file: the Gateway's admin token can
+# rewrite agent definitions, and nothing except the vectorstep service and an
+# operator's own tooling (a Gateway MCP client, kubectl port-forward) has any
+# business reaching port 18780. If you run the Gateway MCP from inside the
+# cluster too, add a `podSelector` block for it below; from outside the
+# cluster, use `kubectl port-forward` rather than opening this policy up.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vectorstep-gateway-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: vectorstep-gateway
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: vectorstep
+      ports:
+        - protocol: TCP
+          port: 18780
+
+---
+# --- Service ingress --------------------------------------------------------
+# Accepts traffic from your ingress controller's namespace (browsers/API
+# clients reaching the UI and write API) and from whatever namespace your
+# webhook senders live in (Alertmanager, a chat platform relay, etc). EDIT
+# both namespaceSelector labels below — "placeholder" matches nothing on a
+# real cluster by design, so this policy fails closed until you do.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vectorstep-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: vectorstep
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: placeholder-ingress-controller-namespace
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: placeholder-webhook-sender-namespace
+      ports:
+        - protocol: TCP
+          port: 8000

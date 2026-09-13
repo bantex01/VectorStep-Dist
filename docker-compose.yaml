@@ -12,7 +12,12 @@ services:
   vectorstep:
     image: ghcr.io/bantex01/vectorstep:${VECTORSTEP_VERSION:-latest}
     restart: unless-stopped
-    ports: ["${VECTORSTEP_PORT:-8000}:8000"]
+    # Loopback by default — the quick start on a laptop should not expose an
+    # unauthenticated-by-default service to the local network (see
+    # SPEC-tls-and-network.md §3.6). Set VECTORSTEP_BIND=0.0.0.0 in .env to
+    # serve other machines, and only behind TLS (server.tls in
+    # config/vectorstep.yaml, or a terminating reverse proxy).
+    ports: ["${VECTORSTEP_BIND:-127.0.0.1}:${VECTORSTEP_PORT:-8000}:8000"]
     # Every var in .env reaches the container this way, so a new ${VAR}
     # referenced from config/vectorstep.yaml (a notification channel's
     # token, a step's API key) never needs a compose-file edit — just add
@@ -40,7 +45,13 @@ services:
     image: ghcr.io/bantex01/vectorstep-gateway:${VECTORSTEP_VERSION:-latest}
     profiles: [gateway]
     restart: unless-stopped
-    ports: ["${GATEWAY_PORT:-18780}:18780"]
+    # No host port. The vectorstep service reaches it on the compose network
+    # at ws://gateway:18780 — publish one only if you need external access
+    # (e.g. the Gateway MCP running on the host), and then put it behind TLS
+    # and a firewall: the Gateway's admin token can rewrite agent definitions.
+    # See SPEC-tls-and-network.md §3.6 and this repo's README for the
+    # `docker compose port gateway 18780` remedy.
+    expose: ["18780"]
     # See the vectorstep service's env_file comment above — the same reasoning
     # applies here for mcp_servers' ${VAR} placeholders and provider keys.
     env_file: .env

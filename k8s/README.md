@@ -12,10 +12,16 @@ no wire-version negotiation between them yet, so run matching image tags.
 
 ## Apply order
 
-Gateway first, since the service calls out to it:
+The Gateway's tokens are an **input**, not an output — generate both up front
+so the sequencing below needs no round trip through a running pod:
 
 ```sh
+GATEWAY_ADMIN_TOKEN="$(openssl rand -hex 24)"
+GATEWAY_INVOKE_TOKEN="$(openssl rand -hex 24)"
+
 kubectl create secret generic vectorstep-gateway-secrets \
+  --from-literal=VECTORSTEP_GATEWAY_ADMIN_TOKEN="$GATEWAY_ADMIN_TOKEN" \
+  --from-literal=VECTORSTEP_GATEWAY_INVOKE_TOKEN="$GATEWAY_INVOKE_TOKEN" \
   --from-literal=ANTHROPIC_API_KEY=...
 kubectl apply -f gateway/pvc.yaml
 kubectl apply -f gateway/configmap.example.yaml   # copy + edit first
@@ -23,11 +29,13 @@ kubectl apply -f gateway/deployment.yaml
 kubectl apply -f gateway/service.yaml
 ```
 
-Then the service:
+Then the service, reusing the **invoke** token you already generated — never
+the admin one, since the service only ever reads agents and runs them, never
+writes them:
 
 ```sh
 kubectl create secret generic vectorstep-secrets \
-  --from-literal=VECTORSTEP_GATEWAY_TOKEN=... \
+  --from-literal=VECTORSTEP_GATEWAY_TOKEN="$GATEWAY_INVOKE_TOKEN" \
   --from-literal=VECTORSTEP_WEBHOOK_TOKEN=...
 kubectl apply -f service/pvc.yaml
 kubectl apply -f service/configmap.example.yaml   # copy + edit first
@@ -35,19 +43,107 @@ kubectl apply -f service/deployment.yaml
 kubectl apply -f service/service.yaml
 ```
 
-## The Gateway operator token
+Deploy the Gateway first if you're applying by hand rather than scripting
+both secrets up front — the service's config points at the Gateway's Service
+(`vectorstep-gateway:18780`), and they deploy as a **matched pair** with no
+wire-version negotiation between them yet, so run matching image tags.
 
-The Gateway mints an operator token for itself on first boot; there is no way
-to pre-supply one. So `vectorstep-secrets` above needs a value you can only get
-*after* the Gateway pod is running:
+## The Gateway's two tokens
+
+`VECTORSTEP_GATEWAY_ADMIN_TOKEN` and `VECTORSTEP_GATEWAY_INVOKE_TOKEN` in
+`vectorstep-gateway-secrets` — both, or neither — make the Gateway's identity
+declarative: supply both and it uses them directly, skips minting entirely,
+and never writes `device-auth.json` (there's nothing to persist under
+`readOnlyRootFilesystem`, and nothing that should be). Supplying only one
+fails startup naming the other; a token under 32 characters is rejected too,
+so a placeholder like `changeme` can't reach production. The apply order
+above already does this correctly — generate both up front, put
+`admin` in the Gateway's secret, put **only the invoke token** (never admin)
+in the service's `VECTORSTEP_GATEWAY_TOKEN`.
+
+The **admin** token is for whoever authors agents (a Gateway MCP client, or
+`curl` against the write endpoints directly) — it is deliberately not one of
+the service's own secrets, since nothing in this stack's own pods needs it.
+Retrieve it however your secrets tooling retrieves values you set yourself
+(it's the value you generated above, not something to extract from the pod).
+
+**If you don't supply either token** (an evaluation deployment, or migrating
+an existing install that already has a `device-auth.json` on its PVC), the
+Gateway falls back to its original behaviour — load what's on disk, or mint
+fresh tokens on first boot and print them to its own logs:
 
 ```sh
+kubectl logs deploy/vectorstep-gateway | grep -A2 "Two tokens were minted"
+# or, after the fact:
 kubectl exec deploy/vectorstep-gateway -- \
-  python -c "import json;print(json.load(open('/data/identity/device-auth.json'))['tokens']['operator']['token'])"
+  python -c "import json;print(json.load(open('/data/identity/device-auth.json'))['tokens']['invoke']['token'])"
 ```
 
-Create the secret with that value, then apply the service manifests. The
-`docker compose` installer automates this step; on Kubernetes it stays manual.
+The `docker compose` installer automates this same mint-and-extract path,
+which is why it stays relevant there even though Kubernetes should generally
+prefer the declarative path above.
+
+## Reaching the Gateway from outside the cluster
+
+`gateway/service.yaml` is `ClusterIP` — reachable in-cluster only, which is
+all the service itself needs. If you're pointing a Gateway MCP client (or
+anything else outside the cluster) at the Gateway, don't change the Service's
+`type:`; use a port-forward instead:
+
+```sh
+kubectl port-forward deploy/vectorstep-gateway 18780:18780
+```
+
+and point `GATEWAY_BASE_URL` at `http://127.0.0.1:18780`. If you need
+something longer-lived than a port-forward, put TLS and authentication (an
+`Ingress` with the admin scope, not the invoke one) in front of it rather
+than exposing the Service directly — the Gateway's admin token can rewrite
+agent definitions. See `service/` for the equivalent `ingress.example.yaml`
+pattern.
+
+## Security hardening
+
+Both deployments pass Pod Security Admission at `restricted` unmodified —
+verified against a real cluster, not just read off the baseline: `runAsNonRoot`,
+a dropped capability set, no privilege escalation, `seccompProfile:
+RuntimeDefault`, and `readOnlyRootFilesystem: true` (the last one isn't a
+strict PSA requirement, but it's in every Kyverno/Gatekeeper baseline that
+usually accompanies `restricted`, and the images are close to compliant
+already). Two consequences worth knowing before you apply them:
+
+- **A fresh PVC needs an init container.** Unlike a Docker named volume
+  (which gets the image's existing `/data` content copied in automatically
+  the first time it's used), a Kubernetes PVC is provisioned genuinely empty
+  — mounting it over `/data` hides the image's own `mkdir -p`. The service's
+  `deployment.yaml` now runs a small `init-data-dirs` init container
+  (`mkdir -p` the same paths the Dockerfile creates) before the main
+  container starts; without it, the pod crash-loops on first boot with
+  `Pipeline config directory not found: /data/pipelines` or a SQLite
+  `unable to open database file` (the latter is now also self-healing at the
+  application level — see `service/src/db/database.py` — but pipelines/steps
+  intentionally still fail loudly on a missing directory, since that's the
+  only signal that catches a typo'd `pipeline_config_dir`).
+- **The Gateway's read-only root breaks `npx`/`uvx`-based MCP servers unless
+  their caches are redirected.** Both download packages at runtime and write
+  under `$HOME`, which is read-only under this setting. `deployment.yaml` now
+  sets `HOME`/`NPM_CONFIG_CACHE`/`XDG_CACHE_HOME` to paths under the existing
+  `/data` PVC — verified end-to-end against a real `npx`-based MCP server
+  (`@modelcontextprotocol/server-filesystem`): it starts, `/health` reports it
+  running, and a pod restart reuses the cache instead of re-downloading.
+
+`k8s/networkpolicy.example.yaml` (copy, edit, apply — not applied by
+default) adds two ingress-only policies: the Gateway accepts port 18780 only
+from pods labelled `app: vectorstep` (the highest-value policy here — the
+Gateway's admin token can rewrite agent definitions), and the service accepts
+port 8000 only from your ingress controller's namespace and whatever
+namespace your webhook senders live in (edit both placeholder
+`namespaceSelector` labels — they match nothing until you do, so the policy
+fails closed rather than open). Whether either policy does anything depends
+on your cluster's CNI actually enforcing `NetworkPolicy` — Calico and Cilium
+do, kind's and minikube's default CNIs don't. Egress is deliberately not
+included: both services need to reach arbitrary LLM provider endpoints and
+whatever your pipelines query, so a useful egress policy is entirely
+deployment-specific.
 
 ## Two things worth knowing
 
@@ -56,8 +152,10 @@ Create the secret with that value, then apply the service manifests. The
 scheduler (APScheduler) and the dedup/event state are in-process. A second
 replica would double-fire scheduled pipelines and desync dedup windows.
 `Recreate` also guarantees the old pod is fully gone before the new one starts,
-which is what makes the in-process Alembic migration on boot safe with no init
-container.
+which is what makes the in-process Alembic migration on boot safe with no
+*migration-specific* init container. (The service does have one init
+container as of this hardening pass — see below — but it's a plain `mkdir -p`,
+unrelated to migrations.)
 
 **Pin your image tags in production.** `latest` tracks the most recent release
 and `edge` tracks the default branch; a GitOps controller (Argo CD, Flux) would

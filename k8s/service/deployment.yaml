@@ -24,11 +24,61 @@ spec:
       labels:
         app: vectorstep
     spec:
+      # fsGroup matters because the PVC below must arrive group-writable for the
+      # non-root process to use it — without it most storage classes mount the
+      # volume root-owned and the container crashes on first write. The uid/gid
+      # match the image's `useradd -u 1000` (service/Dockerfile) — if that ever
+      # changes, this manifest breaks with it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # A freshly provisioned PVC is genuinely empty — unlike a Docker named
+      # volume, which gets the image's existing /data content copied in on
+      # first use, Kubernetes has no equivalent behaviour. Without this, the
+      # main container crash-loops on first boot: database.url's sqlite file
+      # now creates its own parent directory (src/db/database.py), but
+      # pipeline_config_dir/step_library_dir intentionally still fail loudly
+      # on a missing directory (it's the only signal that catches a typo'd
+      # path there), so the directories have to actually exist first. Mirrors
+      # the same mkdir -p list service/Dockerfile bakes into the image, which
+      # this PVC mount hides. Found and fixed while verifying this manifest
+      # against a real cluster (SPEC-k8s-hardening.md).
+      initContainers:
+        - name: init-data-dirs
+          image: ghcr.io/bantex01/vectorstep:latest
+          command: ["sh", "-c", "mkdir -p /data/db /data/artifacts /data/logs /data/pipelines /data/steps"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: vectorstep
           # Pin to a specific released tag in production (see https://vectorstep.io/docs/about/status-and-support/#versions-and-releases);
           # :edge tracks the default branch, :latest tracks the most recent release.
           image: ghcr.io/bantex01/vectorstep:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Starting values — tune for your workload, don't take these as
+          # authoritative. CPU is capped safely because this process is
+          # I/O-bound waiting on LLM calls, not compute-bound.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
           ports:
             - containerPort: 8000
           envFrom:
@@ -45,6 +95,13 @@ spec:
               readOnly: true
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            # Uncomment together with configmap.example.yaml's commented
+            # server.tls block and the "tls" volume below:
+            # - name: tls
+            #   mountPath: /etc/vectorstep/tls
+            #   readOnly: true
             # Uncomment to manage pipelines/steps as versioned ConfigMaps instead of
             # PVC-resident files (mutually exclusive with editing them via the UI/API,
             # which writes to /data/pipelines and /data/steps on the PVC):
@@ -73,6 +130,13 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: vectorstep-data
+        - name: tmp
+          emptyDir: {}
+        # - name: tls
+        #   secret:
+        #     secretName: vectorstep-tls   # kubectl create secret tls vectorstep-tls --cert=... --key=...
+        #   # Also switch the two httpGet probes above to scheme: HTTPS once this is live —
+        #   # they default to HTTP and TLS termination makes plain :8000 stop answering.
         # - name: pipelines
         #   configMap:
         #     name: vectorstep-pipelines   # kubectl create configmap vectorstep-pipelines --from-file=./pipelines/

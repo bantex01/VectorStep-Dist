@@ -92,15 +92,37 @@ docker compose down -v       # stop and delete all data
 Configuration lives in `~/.vectorstep/config/vectorstep.yaml` and
 `config/gateway.yaml`. Edit, then `docker compose up -d` to apply.
 
+### Reaching the Gateway from the host
+
+The Gateway publishes no host port by default — `vectorstep` reaches it on
+the compose network at `ws://gateway:18780`, and that's all the default
+stack needs. If you're pointing a Gateway MCP client (or anything else
+running on the host, not in a container) at `localhost:18780`, add a
+persistent mapping to `docker-compose.yaml`'s `gateway` service:
+
+```yaml
+  gateway:
+    ports: ["127.0.0.1:18780:18780"]
+```
+
+then `docker compose up -d` to apply it. (`docker compose port` only prints
+a binding that already exists — with no `ports:` entry there's nothing for
+it to report, so it isn't the one-off shortcut it might look like.)
+
+Keep it off a non-loopback interface unless it's behind TLS and
+a firewall — the Gateway's admin token can rewrite agent definitions.
+
 ## What the installer does
 
 1. Checks Docker is installed and running.
 2. Writes `docker-compose.yaml`, `config/*.yaml`, and `.env` into
    `~/.vectorstep`, never overwriting config or `.env` that already exist.
 3. Pulls the images.
-4. Starts the Gateway alone, reads the operator token it mints on first boot,
+4. Starts the Gateway alone, reads the invoke token it mints on first boot,
    and writes it into `.env` — so the service starts already authenticated
-   rather than needing a manual copy-paste and restart.
+   rather than needing a manual copy-paste and restart. The Gateway also
+   mints a separate admin token, printed at the end for whoever authors
+   agents (a Gateway MCP client) — not written to any file here.
 5. Starts the full stack and seeds the sample pipelines on a first install.
 
 ## Licence
