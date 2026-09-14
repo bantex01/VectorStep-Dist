@@ -84,7 +84,7 @@ the Software.
 
    This licence continues until terminated. It terminates automatically if You
    breach any term of it, at which point You must cease using the Software and
-   destroy all copies in Your possession. Clauses 4, 8, 9, and 10 survive
+   destroy all copies in Your possession. Clauses 4, 8, 9, and 11 survive
    termination.
 
 8. NO SUPPORT OR WARRANTY
@@ -118,7 +118,20 @@ the Software.
    arising out of or in connection with this agreement shall not exceed one
    hundred pounds sterling (GBP 100).
 
-10. GENERAL
+10. ANONYMOUS USAGE DATA
+
+   The Software sends the Licensor a single anonymous ping each time it
+   starts, containing a randomly generated installation identifier, the
+   Software's version, and the host's operating system, architecture, and
+   install method (container, Kubernetes, or standalone). This does not
+   include hostnames, IP addresses beyond what any network request
+   inherently discloses to the receiving server, configuration, pipeline or
+   agent definitions, or any data processed by the Software. You may disable
+   this by setting the DO_NOT_TRACK or VECTORSTEP_TELEMETRY environment
+   variable, or telemetry.enabled: false in config.yaml, before starting the
+   Software.
+
+11. GENERAL
 
    This agreement constitutes the entire agreement between You and the Licensor
    in relation to the Software and supersedes any prior understanding. If any

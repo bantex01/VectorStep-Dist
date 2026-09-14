@@ -125,6 +125,28 @@ a firewall — the Gateway's admin token can rewrite agent definitions.
    agents (a Gateway MCP client) — not written to any file here.
 5. Starts the full stack and seeds the sample pipelines on a first install.
 
+## Telemetry
+
+VectorStep and the Gateway each send a single anonymous ping when they
+start: a randomly generated installation ID, the version, and the host's
+OS/architecture/install method (container, Kubernetes, or `--native`).
+Nothing else — no hostnames, no IPs beyond what any request inherently
+exposes to the receiving server, no config, no pipeline or agent
+definitions, no data processed by either service.
+
+Disable it before installing, or any time after (takes effect on the next
+restart):
+
+```bash
+export DO_NOT_TRACK=1
+# or: export VECTORSTEP_TELEMETRY=false
+# or, in config.yaml:
+#   telemetry:
+#     enabled: false
+```
+
+See clause 10 of [`LICENSE`](LICENSE) for the full terms.
+
 ## Licence
 
 VectorStep is proprietary software, free to download and use — see

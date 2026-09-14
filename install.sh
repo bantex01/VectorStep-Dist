@@ -37,6 +37,17 @@ log()  { printf '==> %s\n' "$1"; }
 skip() { printf '==> skip: %s\n' "$1"; }
 warn() { printf '==> warning: %s\n' "$1" >&2; }
 die()  { printf 'error: %s\n' "$1" >&2; exit 1; }
+# set_env_var <file> <key> <value> — idempotent KEY=VALUE upsert, used by the
+# --native path below to set version/telemetry vars without disturbing any
+# secrets a prior install (or the operator) already put in that file.
+set_env_var() {
+  local file="$1" key="$2" value="$3"
+  if grep -q "^${key}=" "$file" 2>/dev/null; then
+    sed -i.bak "s|^${key}=.*|${key}=${value}|" "$file" && rm -f "$file.bak"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
 
 # --- Arguments -------------------------------------------------------------
 
@@ -217,18 +228,21 @@ if [ "$NATIVE" = 1 ]; then
 
     cp "$top/systemd/$unit" "/etc/systemd/system/$unit"
 
-    # VECTORSTEP_VERSION into the env file, without disturbing any secrets a
-    # prior install (or the operator) already put there.
+    # VECTORSTEP_VERSION plus the telemetry vars (SPEC-startup-telemetry.md
+    # §2/§4) into the env file, without disturbing any secrets a prior
+    # install (or the operator) already put there.
+    #
+    # VECTORSTEP_TELEMETRY_STATE_DIR points at this component's own slice of
+    # $VARLIB — not $ETC, which ProtectSystem=strict-adjacent hardening in
+    # the unit (and, for vectorstep, the fact that config.yaml's directory
+    # isn't guaranteed writable) makes the wrong place to persist the
+    # install-id file across restarts.
     local env_file
     env_file="$ETC/$(basename "$root")/env"
-    local ver
-    ver="$(cat "$top/VERSION")"
     touch "$env_file"
-    if grep -q '^VECTORSTEP_VERSION=' "$env_file"; then
-      sed -i.bak "s|^VECTORSTEP_VERSION=.*|VECTORSTEP_VERSION=$ver|" "$env_file" && rm -f "$env_file.bak"
-    else
-      printf 'VECTORSTEP_VERSION=%s\n' "$ver" >> "$env_file"
-    fi
+    set_env_var "$env_file" VECTORSTEP_VERSION "$(cat "$top/VERSION")"
+    set_env_var "$env_file" VECTORSTEP_INSTALL_METHOD native
+    set_env_var "$env_file" VECTORSTEP_TELEMETRY_STATE_DIR "$VARLIB/$(basename "$root")"
     chown "root:$NATIVE_USER" "$env_file"; chmod 640 "$env_file"
 
     echo "$top"
@@ -405,6 +419,9 @@ EOF
   echo "    Logs         : journalctl -u vectorstep -f"
   echo "    Upgrade with : re-run this installer with --native"
   echo "    Uninstall    : re-run with --native --uninstall (add --purge --yes to also remove state)"
+  echo "    Telemetry    : anonymous startup ping (version/OS/arch only, no config or"
+  echo "                   pipeline data) — disable with VECTORSTEP_TELEMETRY=false"
+  echo "                   or DO_NOT_TRACK=1. See https://vectorstep.io/docs/telemetry"
   echo
   if [ -n "${NATIVE_ADMIN_TOKEN:-}" ]; then
     echo "    Gateway admin token (for a Gateway MCP client, e.g. GATEWAY_OPERATOR_TOKEN):"
@@ -670,6 +687,9 @@ echo "    Steps        : $INSTALL_DIR/steps"
 [ "$WITH_GATEWAY" = 1 ] && echo "    Agents       : $INSTALL_DIR/agents"
 echo "    Manage with  : cd $INSTALL_DIR && docker compose ps|logs|down"
 echo "    Upgrade with : re-run this installer"
+echo "    Telemetry    : anonymous startup ping (version/OS/arch only, no config or"
+echo "                   pipeline data) — disable with VECTORSTEP_TELEMETRY=false"
+echo "                   or DO_NOT_TRACK=1. See https://vectorstep.io/docs/telemetry"
 echo
 if [ -n "$ADMIN_TOKEN" ]; then
   echo "    Gateway admin token (for a Gateway MCP client, e.g. GATEWAY_OPERATOR_TOKEN):"

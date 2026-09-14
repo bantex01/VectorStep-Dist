@@ -81,6 +81,14 @@ spec:
               memory: 1Gi
           ports:
             - containerPort: 8000
+          env:
+            # Overrides the image's default (VECTORSTEP_INSTALL_METHOD=container,
+            # baked into the Dockerfile for the plain docker-compose path) — see
+            # SPEC-startup-telemetry.md §2. VECTORSTEP_TELEMETRY_STATE_DIR needs no
+            # override here: the image default (/data) already matches the volume
+            # mount below.
+            - name: VECTORSTEP_INSTALL_METHOD
+              value: k8s
           envFrom:
             # kubectl create secret generic vectorstep-secrets \
             #   --from-literal=VECTORSTEP_GATEWAY_TOKEN=... \
