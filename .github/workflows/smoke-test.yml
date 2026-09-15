@@ -12,6 +12,13 @@ name: compose smoke test
 # read:packages scope, added as a repo secret. Once both packages go public
 # again (see ROADMAP.md's "Must happen before go-live", item 9), this step
 # becomes a no-op and could be dropped, but leaving it in place doesn't hurt.
+#
+# Also asserts the telemetry disclosure banner (SPEC-startup-telemetry.md §5)
+# prints on both the fresh-install and the upgrade (re-run) path — the one
+# test §10 of that spec flagged as missing. Piggybacks on this job's real
+# install.sh run rather than a separate one, since the banner only prints
+# after `docker compose up -d` succeeds and there's no cheaper way to get
+# there than the real, authenticated image pull this job already does.
 
 on:
   push:
@@ -30,7 +37,7 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Run install.sh via curl | bash, from this commit's files
+      - name: Run install.sh via curl | bash, from this commit's files (fresh install)
         env:
           # file:// so fetch() reads this checkout's own docker-compose.yaml /
           # config templates instead of the public raw URL — the repo is
@@ -40,7 +47,13 @@ jobs:
           # commit's files, never whatever happens to be live on main.
           VECTORSTEP_DIST_BASE: file://${{ github.workspace }}
         run: |
-          cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home"
+          cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home" | tee /tmp/install-fresh.log
+
+      - name: Assert telemetry disclosure banner printed (fresh install)
+        run: |
+          grep -Fq 'Telemetry    : anonymous startup ping' /tmp/install-fresh.log
+          grep -Fq 'disable with VECTORSTEP_TELEMETRY=false' /tmp/install-fresh.log
+          grep -Fq 'DO_NOT_TRACK=1' /tmp/install-fresh.log
 
       - name: Wait for both services to report healthy
         # The Gateway publishes no host port by default (SPEC-tls-and-network.md
@@ -61,6 +74,18 @@ jobs:
           done
           echo "::error::services never became healthy within 60s"
           exit 1
+
+      - name: Re-run install.sh (upgrade path — .env already exists from the run above)
+        env:
+          VECTORSTEP_DIST_BASE: file://${{ github.workspace }}
+        run: |
+          cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home" | tee /tmp/install-upgrade.log
+
+      - name: Assert telemetry disclosure banner printed (upgrade)
+        run: |
+          grep -Fq 'Telemetry    : anonymous startup ping' /tmp/install-upgrade.log
+          grep -Fq 'disable with VECTORSTEP_TELEMETRY=false' /tmp/install-upgrade.log
+          grep -Fq 'DO_NOT_TRACK=1' /tmp/install-upgrade.log
 
       - name: Dump container logs on failure
         if: failure()
