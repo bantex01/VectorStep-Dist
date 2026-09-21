@@ -66,9 +66,19 @@ data:
         rest_url: http://vectorstep-gateway:18780
         # rest_url: https://vectorstep-gateway:18780   # matches the wss:// choice above
 
-    # auth:
-    #   token: ${VECTORSTEP_WEBHOOK_TOKEN}   # protect POST /webhook before exposing it — see
-    #                                         # https://vectorstep.io/docs/operations/deployment/ for the full auth block.
+    # Required — VectorStep refuses to start without at least one token here
+    # (or auth.allow_unauthenticated: true, not recommended beyond a throwaway
+    # eval namespace). Both values come from vectorstep-secrets via envFrom —
+    # see README.md. admin logs into the UI and calls /reload and most read
+    # endpoints; webhook is scoped to POST /webhook only.
+    auth:
+      tokens:
+        - name: admin
+          token: ${VECTORSTEP_ADMIN_TOKEN}
+          role: admin
+        - name: webhook
+          token: ${VECTORSTEP_WEBHOOK_TOKEN}
+          role: webhook
 
     security:
       # A pipeline author gets a shell on this host if this is true — see

@@ -29,19 +29,30 @@ kubectl apply -f gateway/deployment.yaml
 kubectl apply -f gateway/service.yaml
 ```
 
-Then the service, reusing the **invoke** token you already generated — never
-the admin one, since the service only ever reads agents and runs them, never
-writes them:
+Then the service, reusing the **invoke** token you already generated (never
+the Gateway's admin one, since the service only ever reads agents and runs
+them, never writes them) — plus VectorStep's own two tokens, distinct from
+the Gateway's, for logging into the UI and authenticating `POST /webhook`:
 
 ```sh
+VECTORSTEP_ADMIN_TOKEN="$(openssl rand -hex 24)"
+VECTORSTEP_WEBHOOK_TOKEN="$(openssl rand -hex 24)"
+
 kubectl create secret generic vectorstep-secrets \
   --from-literal=VECTORSTEP_GATEWAY_TOKEN="$GATEWAY_INVOKE_TOKEN" \
-  --from-literal=VECTORSTEP_WEBHOOK_TOKEN=...
+  --from-literal=VECTORSTEP_ADMIN_TOKEN="$VECTORSTEP_ADMIN_TOKEN" \
+  --from-literal=VECTORSTEP_WEBHOOK_TOKEN="$VECTORSTEP_WEBHOOK_TOKEN"
 kubectl apply -f service/pvc.yaml
 kubectl apply -f service/configmap.example.yaml   # copy + edit first
 kubectl apply -f service/deployment.yaml
 kubectl apply -f service/service.yaml
 ```
+
+`VECTORSTEP_ADMIN_TOKEN` is what you log into the UI with, and is required
+for `/reload` and most read endpoints — `auth.tokens` in
+`configmap.example.yaml` wires both into the service; VectorStep refuses to
+start without at least one configured token (or
+`auth.allow_unauthenticated: true`), same as every other install path.
 
 Deploy the Gateway first if you're applying by hand rather than scripting
 both secrets up front — the service's config points at the Gateway's Service

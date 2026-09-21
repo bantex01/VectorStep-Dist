@@ -49,8 +49,8 @@ services:
     # at ws://gateway:18780 — publish one only if you need external access
     # (e.g. the Gateway MCP running on the host), and then put it behind TLS
     # and a firewall: the Gateway's admin token can rewrite agent definitions.
-    # See SPEC-tls-and-network.md §3.6 and this repo's README for the
-    # `docker compose port gateway 18780` remedy.
+    # See SPEC-tls-and-network.md §3.6 and this repo's README, "Reaching
+    # the Gateway from the host", if you need host access.
     expose: ["18780"]
     # See the vectorstep service's env_file comment above — the same reasoning
     # applies here for mcp_servers' ${VAR} placeholders and provider keys.
