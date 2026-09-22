@@ -56,8 +56,10 @@ command -v gh >/dev/null 2>&1 || { echo "error: gh (GitHub CLI) not found on PAT
 command -v docker >/dev/null 2>&1 || { echo "error: docker not found on PATH." >&2; exit 1; }
 
 PASS=true
-warn() { echo "  WARN: $*"; PASS=false; }
-ok()   { echo "  OK:   $*"; }
+ACTIONS=()  # each entry: one blank-line-separated block, printed verbatim in the final summary
+warn()   { echo "  WARN: $*"; PASS=false; }
+ok()     { echo "  OK:   $*"; }
+action() { ACTIONS+=("$1"); }  # call alongside warn() when the fix is a concrete command
 
 echo "==> 1. local working tree — uncommitted or unpushed changes, every repo"
 for name in "${ALL_REPOS[@]}"; do
@@ -90,6 +92,20 @@ for name in "${ALL_REPOS[@]}"; do
     [ "$ahead" != "0" ] && [ "$ahead" != "?" ] && detail="$detail, $ahead commit(s) to push"
     [ "$behind" != "0" ] && [ "$behind" != "?" ] && detail="$detail, $behind commit(s) behind origin (pull before you push)"
     warn "$name: $detail$upstream_note"
+
+    if [ "$dirty" != "0" ]; then
+      action "$name: $dirty uncommitted file(s) — review, then commit:"$'\n'"    git -C \"$repo\" status"
+    fi
+    if [ -z "$upstream" ]; then
+      action "$name: branch \"$branch\" has no upstream — set one on first push:"$'\n'"    git -C \"$repo\" push -u origin $branch"
+    else
+      if [ "$ahead" != "0" ] && [ "$ahead" != "?" ]; then
+        action "$name: $ahead commit(s) to push:"$'\n'"    git -C \"$repo\" push"
+      fi
+      if [ "$behind" != "0" ] && [ "$behind" != "?" ]; then
+        action "$name: $behind commit(s) behind origin — pull before pushing:"$'\n'"    git -C \"$repo\" pull"
+      fi
+    fi
   fi
 done
 
@@ -111,6 +127,14 @@ if [ "$VS_TAG" = "$GW_TAG" ]; then
   ok "tags match"
 else
   warn "tags DO NOT match. Per RELEASING.md / cutting-a-release.md, these two repos have a hard wire-protocol coupling with no version negotiation — they must always carry the same tag, even for a one-line fix in only one of them. Tag the trailing repo (even with an empty diff) to catch up before running publish-native-arm64.sh or trusting 'latest' images to be compatible with each other."
+
+  HIGHER_TAG="$(printf '%s\n%s\n' "$VS_TAG" "$GW_TAG" | sort -V | tail -1)"
+  if [ "$HIGHER_TAG" = "$VS_TAG" ]; then
+    LAG_NAME="VectorStep-Gateway"; LAG_REPO="$GW_REPO"
+  else
+    LAG_NAME="VectorStep"; LAG_REPO="$VS_REPO"
+  fi
+  action "Tag mismatch — $LAG_NAME needs to catch up to $HIGHER_TAG (an empty-diff tag is fine if there's nothing else to release):"$'\n'"    git -C \"$LAG_REPO\" tag $HIGHER_TAG"$'\n'"    git -C \"$LAG_REPO\" push origin $HIGHER_TAG"
 fi
 
 # Use the higher of the two (by version sort) as the target for the checks
@@ -125,8 +149,11 @@ echo
 echo "==> 3. Dist release asset completeness ($DIST_REPO @ $TARGET_TAG)"
 if ! gh release view "$TARGET_TAG" --repo "$DIST_REPO" >/dev/null 2>&1; then
   warn "no release exists yet at $TARGET_TAG in $DIST_REPO"
+  action "No $DIST_REPO release exists yet at $TARGET_TAG — check whether $VS_GH_REPO/$GW_GH_REPO's tag push actually ran their release workflows:"$'\n'"    gh run list --repo $VS_GH_REPO --branch $TARGET_TAG"$'\n'"    gh run list --repo $GW_GH_REPO --branch $TARGET_TAG"
 else
   ASSETS="$(gh release view "$TARGET_TAG" --repo "$DIST_REPO" --json assets --jq '.assets[].name')"
+  MISSING_AMD64=false
+  MISSING_ARM64=false
   for svc in vectorstep vectorstep-gateway; do
     for f in \
       "$svc-$TARGET_VERSION-linux-amd64.tar.gz" \
@@ -140,9 +167,19 @@ else
         ok "$f"
       else
         warn "missing asset: $f"
+        case "$f" in
+          *linux-arm64*) MISSING_ARM64=true ;;
+          *)              MISSING_AMD64=true ;;
+        esac
       fi
     done
   done
+  if $MISSING_AMD64; then
+    action "amd64 tarball asset(s) missing from the $TARGET_TAG release — that's native.yml's CI leg, check its run:"$'\n'"    gh run list --repo $VS_GH_REPO --branch $TARGET_TAG --workflow native.yml"$'\n'"    gh run list --repo $GW_GH_REPO --branch $TARGET_TAG --workflow native.yml"
+  fi
+  if $MISSING_ARM64; then
+    action "arm64 tarball asset(s) missing from the $TARGET_TAG release — that's the manual leg (no arm64 GitHub runner). Once amd64 assets exist for this release, run:"$'\n'"    ./scripts/publish-native-arm64.sh $TARGET_VERSION"
+  fi
 fi
 
 echo
@@ -152,10 +189,12 @@ for repo in "$VS_GH_REPO" "$GW_GH_REPO"; do
   INFLIGHT="$(echo "$RUNS" | jq -r '.[] | select(.status != "completed") | .workflowName')"
   if [ -n "$INFLIGHT" ]; then
     warn "$repo has runs still in flight at $TARGET_TAG: $(echo "$INFLIGHT" | paste -sd, -)"
+    action "$repo: workflow(s) still running at $TARGET_TAG — wait, then re-run this script. To watch instead:"$'\n'"    gh run list --repo $repo --branch $TARGET_TAG"
   else
     FAILED="$(echo "$RUNS" | jq -r '.[] | select(.conclusion != "success" and .conclusion != null) | .workflowName + " (" + .conclusion + ")"')"
     if [ -n "$FAILED" ]; then
       warn "$repo has completed-but-not-successful runs at $TARGET_TAG: $(echo "$FAILED" | paste -sd, -)"
+      action "$repo: failed workflow(s) at $TARGET_TAG ($(echo "$FAILED" | paste -sd, -)) — inspect, then re-run:"$'\n'"    gh run list --repo $repo --branch $TARGET_TAG"$'\n'"    gh run rerun <run-id> --repo $repo --failed"
     else
       ok "$repo: no in-flight runs, none failed at $TARGET_TAG"
     fi
@@ -166,8 +205,12 @@ echo
 echo "==> 5. GHCR image is genuinely multi-arch at $TARGET_TAG"
 for image in vectorstep vectorstep-gateway; do
   REF="ghcr.io/bantex01/$image:$TARGET_VERSION"
+  IMAGE_GH_REPO="$VS_GH_REPO"
+  [ "$image" = "vectorstep-gateway" ] && IMAGE_GH_REPO="$GW_GH_REPO"
+
   if ! MANIFEST="$(docker manifest inspect "$REF" 2>/dev/null)"; then
     warn "$REF: manifest not found (image.yml may not have run/published yet)"
+    action "$REF: no manifest published — check image.yml:"$'\n'"    gh run list --repo $IMAGE_GH_REPO --branch $TARGET_TAG --workflow image.yml"
     continue
   fi
   ARCHES="$(echo "$MANIFEST" | jq -r '[.manifests[].platform | select(.architecture != "unknown") | .architecture] | sort | join(",")')"
@@ -175,6 +218,7 @@ for image in vectorstep vectorstep-gateway; do
     ok "$REF: $ARCHES"
   else
     warn "$REF: only found [$ARCHES] — expected both amd64 and arm64"
+    action "$REF: only [$ARCHES] published, missing an architecture — check image.yml (it builds both via buildx in one multi-platform push, so a partial manifest usually means the job failed partway):"$'\n'"    gh run list --repo $IMAGE_GH_REPO --branch $TARGET_TAG --workflow image.yml"
   fi
 done
 
@@ -183,5 +227,17 @@ if $PASS; then
   echo "==> all clear at $TARGET_TAG"
 else
   echo "==> issues found above — see WARN lines"
-  exit 1
 fi
+
+if [ "${#ACTIONS[@]}" -gt 0 ]; then
+  echo
+  echo "==> outstanding actions (${#ACTIONS[@]})"
+  n=1
+  for item in "${ACTIONS[@]}"; do
+    echo
+    printf '%d. %s\n' "$n" "$item"
+    n=$((n + 1))
+  done
+fi
+
+$PASS || exit 1
