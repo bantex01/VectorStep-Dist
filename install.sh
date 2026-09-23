@@ -421,7 +421,7 @@ EOF
   echo "    Uninstall    : re-run with --native --uninstall (add --purge --yes to also remove state)"
   echo "    Telemetry    : anonymous startup ping (version/OS/arch only, no config or"
   echo "                   pipeline data) — disable with VECTORSTEP_TELEMETRY=false"
-  echo "                   or DO_NOT_TRACK=1. See https://vectorstep.io/docs/telemetry"
+  echo "                   or DO_NOT_TRACK=1. See https://vectorstep.io/docs/operations/telemetry"
   echo
   if [ -n "${NATIVE_ADMIN_TOKEN:-}" ]; then
     echo "    Gateway admin token (for a Gateway MCP client, e.g. GATEWAY_OPERATOR_TOKEN):"
@@ -689,7 +689,7 @@ echo "    Manage with  : cd $INSTALL_DIR && docker compose ps|logs|down"
 echo "    Upgrade with : re-run this installer"
 echo "    Telemetry    : anonymous startup ping (version/OS/arch only, no config or"
 echo "                   pipeline data) — disable with VECTORSTEP_TELEMETRY=false"
-echo "                   or DO_NOT_TRACK=1. See https://vectorstep.io/docs/telemetry"
+echo "                   or DO_NOT_TRACK=1. See https://vectorstep.io/docs/operations/telemetry"
 echo
 if [ -n "$ADMIN_TOKEN" ]; then
   echo "    Gateway admin token (for a Gateway MCP client, e.g. GATEWAY_OPERATOR_TOKEN):"
