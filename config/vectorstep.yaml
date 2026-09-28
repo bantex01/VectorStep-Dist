@@ -33,3 +33,16 @@ security:
   # config reference before enabling it.
   allow_shell_checks: false   # default: false
   template_sandbox: true      # default: true
+  # executor: shell pipeline steps — see the config reference before
+  # enabling. A pipeline can only reference a pre-approved script by name
+  # here; scripts_dir is mounted read-only (see docker-compose.yaml) so the
+  # container can't modify its own allowlist even with a compromised
+  # in-process write primitive.
+  shell_steps:
+    enabled: false             # default: false
+    scripts_dir: /etc/vectorstep/scripts
+    allowed: []
+    # allowed:
+    #   - name: restart-service
+    #     path: restart-service.sh
+    #     sha256: 3f2a1c9e...       # compute with: sha256sum <file>, under ./scripts

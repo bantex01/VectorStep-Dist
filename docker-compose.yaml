@@ -5,12 +5,18 @@
 # in the (private) source repo, there are no `build:` blocks here — everything
 # comes from ghcr.io.
 #
-# Image tag comes from VECTORSTEP_VERSION in .env; `latest` tracks the most
-# recent release, `edge` tracks the default branch.
+# Image tag comes from VECTORSTEP_IMAGE_TAG in .env; `latest` tracks the most
+# recent release, `edge` tracks the default branch. Deliberately NOT named
+# VECTORSTEP_VERSION: that name is the app's own self-reported version,
+# baked into the image at build time (see service/src/main.py). Every var in
+# .env is forwarded into the container below (env_file:), so reusing the
+# same name here used to silently clobber the real build-time version with
+# whatever tag this file happened to select — every non-pinned install
+# reported "latest" instead of its real version, including in telemetry.
 
 services:
   vectorstep:
-    image: ghcr.io/bantex01/vectorstep:${VECTORSTEP_VERSION:-latest}
+    image: ghcr.io/bantex01/vectorstep:${VECTORSTEP_IMAGE_TAG:-latest}
     restart: unless-stopped
     # Loopback by default — the quick start on a laptop should not expose an
     # unauthenticated-by-default service to the local network (see
@@ -34,6 +40,11 @@ services:
         required: false
     volumes:
       - ./config/vectorstep.yaml:/etc/vectorstep/config.yaml:ro
+      # Read-only, like config.yaml itself — security.shell_steps scripts are
+      # host/operator-managed only, never editable through the pipeline-write
+      # API, so the mount enforces that structurally on top of the per-call
+      # checksum re-verification.
+      - ./scripts:/etc/vectorstep/scripts:ro
       # Authoring directories live on the host so you can edit pipelines and
       # steps with a normal editor. Everything else the service writes — the
       # database, artifacts, logs — stays in the named volume.
@@ -42,7 +53,7 @@ services:
       - vectorstep-data:/data
 
   gateway:
-    image: ghcr.io/bantex01/vectorstep-gateway:${VECTORSTEP_VERSION:-latest}
+    image: ghcr.io/bantex01/vectorstep-gateway:${VECTORSTEP_IMAGE_TAG:-latest}
     profiles: [gateway]
     restart: unless-stopped
     # No host port. The vectorstep service reaches it on the compose network
@@ -60,10 +71,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - ./config/gateway.yaml:/etc/vectorstep-gateway/config.yaml:ro
-      # Agent definitions are authored on the host, same reasoning as above.
-      # The Gateway's identity and token stay in the named volume, so they
-      # survive a recreate.
+      # Agent and skill definitions are authored on the host, same reasoning
+      # as above. The Gateway's identity and token stay in the named volume,
+      # so they survive a recreate.
       - ./agents:/data/agents
+      - ./skills:/data/skills
       - gateway-data:/data
 
   # Enabled by `install.sh --postgres`, or by hand with

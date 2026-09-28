@@ -3,7 +3,7 @@
 # --from-file=config.yaml=./my-config.yaml`). Do not apply this file verbatim.
 #
 # This is the same "container paths" config described in
-# https://vectorstep.io/docs/operations/deployment/ — identity and agents live under /data,
+# https://vectorstep.io/docs/operations/deployment/ — identity, agents, and skills live under /data,
 # which the Deployment mounts from the PVC in pvc.yaml. The identity path
 # override is not optional in a container: the default
 # ~/.vectorstep-gateway/identity is ephemeral per-pod.
@@ -27,6 +27,7 @@ data:
       # block) rather than relying on the namespace's NetworkPolicy alone.
 
     agents_dir: /data/agents
+    skills_dir: /data/skills
 
     identity:
       path: /data/identity

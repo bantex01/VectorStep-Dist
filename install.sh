@@ -140,7 +140,7 @@ if [ "$NATIVE" = 1 ]; then
 
     if [ "$NATIVE_PURGE" = 1 ]; then
       if [ "$NATIVE_YES" != 1 ]; then
-        die "--purge permanently deletes $VARLIB and $VARLOG (database, artifacts, authored pipelines/agents) and removes the $NATIVE_USER user. Re-run with --yes to confirm — there is no interactive prompt under curl | bash."
+        die "--purge permanently deletes $VARLIB and $VARLOG (database, artifacts, authored pipelines/agents/skills) and removes the $NATIVE_USER user. Re-run with --yes to confirm — there is no interactive prompt under curl | bash."
       fi
       log "purging $VARLIB and $VARLOG"
       rm -rf "$VARLIB" "$VARLOG"
@@ -148,7 +148,7 @@ if [ "$NATIVE" = 1 ]; then
       groupdel "$NATIVE_USER" </dev/null >/dev/null 2>&1 || true
       log "purge complete — nothing of VectorStep's remains on this host"
     else
-      log "kept: $VARLIB and $VARLOG (database, artifacts, authored pipelines/agents) — re-run with --uninstall --purge --yes to remove those too"
+      log "kept: $VARLIB and $VARLOG (database, artifacts, authored pipelines/agents/skills) — re-run with --uninstall --purge --yes to remove those too"
     fi
     exit 0
   fi
@@ -199,7 +199,7 @@ if [ "$NATIVE" = 1 ]; then
   mkdir -p "$OPT" "$ETC/vectorstep" \
     "$VARLIB/vectorstep"/{db,artifacts,pipelines,steps,webhooks} \
     "$VARLOG/vectorstep"
-  [ "$WITH_GATEWAY" = 1 ] && mkdir -p "$ETC/vectorstep-gateway" "$VARLIB/vectorstep-gateway"/{identity,agents} "$VARLOG/vectorstep-gateway"
+  [ "$WITH_GATEWAY" = 1 ] && mkdir -p "$ETC/vectorstep-gateway" "$VARLIB/vectorstep-gateway"/{identity,agents,skills} "$VARLOG/vectorstep-gateway"
   chown -R "$NATIVE_USER:$NATIVE_USER" "$VARLIB" "$VARLOG"
   chown -R "root:$NATIVE_USER" "$ETC"
 
@@ -331,10 +331,11 @@ EOF
       cp "$GW_STAGE/config.yaml.example" "$ETC/vectorstep-gateway/config.yaml"
       # Same reasoning as VectorStep's config above — ProtectHome=true breaks
       # the default identity.path, and ProtectSystem=strict breaks the
-      # default relative agents_dir/logging.dir the same way; confirmed by
-      # testing this for real.
+      # default relative agents_dir/skills_dir/logging.dir the same way;
+      # confirmed by testing this for real.
       sed -i \
         -e "s|^agents_dir: \./agents|agents_dir: $VARLIB/vectorstep-gateway/agents|" \
+        -e "s|^skills_dir: \./skills|skills_dir: $VARLIB/vectorstep-gateway/skills|" \
         -e "s|^  path: ~/\.vectorstep-gateway/identity|  path: $VARLIB/vectorstep-gateway/identity|" \
         -e "s|^  dir: \./logs|  dir: $VARLOG/vectorstep-gateway|" \
         "$ETC/vectorstep-gateway/config.yaml"
@@ -346,6 +347,10 @@ EOF
     if [ -d "$GW_STAGE/samples/agents" ] && [ -z "$(ls -A "$VARLIB/vectorstep-gateway/agents" 2>/dev/null)" ]; then
       cp -a "$GW_STAGE/samples/agents/." "$VARLIB/vectorstep-gateway/agents/" 2>/dev/null || true
       chown -R "$NATIVE_USER:$NATIVE_USER" "$VARLIB/vectorstep-gateway/agents"
+    fi
+    if [ -d "$GW_STAGE/samples/skills" ] && [ -z "$(ls -A "$VARLIB/vectorstep-gateway/skills" 2>/dev/null)" ]; then
+      cp -a "$GW_STAGE/samples/skills/." "$VARLIB/vectorstep-gateway/skills/" 2>/dev/null || true
+      chown -R "$NATIVE_USER:$NATIVE_USER" "$VARLIB/vectorstep-gateway/skills"
     fi
   fi
 
@@ -415,6 +420,7 @@ EOF
   echo "    Pipelines    : $VARLIB/vectorstep/pipelines"
   echo "    Steps        : $VARLIB/vectorstep/steps"
   [ "$WITH_GATEWAY" = 1 ] && echo "    Agents       : $VARLIB/vectorstep-gateway/agents"
+  [ "$WITH_GATEWAY" = 1 ] && echo "    Skills       : $VARLIB/vectorstep-gateway/skills"
   echo "    Manage with  : systemctl status|restart|stop vectorstep vectorstep-gateway"
   echo "    Logs         : journalctl -u vectorstep -f"
   echo "    Upgrade with : re-run this installer with --native"
@@ -455,8 +461,8 @@ log "preflight ok (docker $(docker version --format '{{.Server.Version}}' 2>/dev
 
 # --- Fetch stack files -----------------------------------------------------
 
-mkdir -p "$INSTALL_DIR/config" "$INSTALL_DIR/pipelines" "$INSTALL_DIR/steps"
-[ "$WITH_GATEWAY" = 1 ] && mkdir -p "$INSTALL_DIR/agents"
+mkdir -p "$INSTALL_DIR/config" "$INSTALL_DIR/pipelines" "$INSTALL_DIR/steps" "$INSTALL_DIR/scripts"
+[ "$WITH_GATEWAY" = 1 ] && mkdir -p "$INSTALL_DIR/agents" "$INSTALL_DIR/skills"
 cd "$INSTALL_DIR"
 
 fetch() { # fetch <remote-path> <local-path> <overwrite:yes|no>
@@ -487,6 +493,20 @@ else
     sed -i.bak "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY|" .env && rm -f .env.bak
     log "took ANTHROPIC_API_KEY from your environment"
   fi
+fi
+
+# Migrate .env files predating the VECTORSTEP_IMAGE_TAG split: VECTORSTEP_VERSION
+# used to double as both the image-tag selector below and, via env_file
+# forwarding into the container (docker-compose.yaml), the app's own
+# self-reported version — so every non-pinned install reported "latest" in
+# telemetry instead of the real version baked into the image at build time.
+# Drop the old key entirely so it's never forwarded under that name again.
+if grep -q '^VECTORSTEP_VERSION=' .env; then
+  OLD_IMAGE_TAG="$(grep '^VECTORSTEP_VERSION=' .env | cut -d= -f2)"
+  sed -i.bak '/^VECTORSTEP_VERSION=/d' .env && rm -f .env.bak
+  grep -q '^VECTORSTEP_IMAGE_TAG=' .env \
+    || printf 'VECTORSTEP_IMAGE_TAG=%s\n' "$OLD_IMAGE_TAG" >> .env
+  log "migrated .env: VECTORSTEP_VERSION -> VECTORSTEP_IMAGE_TAG"
 fi
 
 # --- PostgreSQL ------------------------------------------------------------
@@ -559,7 +579,7 @@ EOF
 fi
 
 if [ -n "$VERSION_TAG" ]; then
-  sed -i.bak "s|^VECTORSTEP_VERSION=.*|VECTORSTEP_VERSION=$VERSION_TAG|" .env && rm -f .env.bak
+  sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=$VERSION_TAG|" .env && rm -f .env.bak
   log "pinned images to $VERSION_TAG"
 fi
 
@@ -569,7 +589,7 @@ COMPOSE=(docker compose)
 
 # --- Pull ------------------------------------------------------------------
 
-TAG="$(grep -E '^VECTORSTEP_VERSION=' .env | cut -d= -f2)"; TAG="${TAG:-latest}"
+TAG="$(grep -E '^VECTORSTEP_IMAGE_TAG=' .env | cut -d= -f2)"; TAG="${TAG:-latest}"
 PULL_ERR="$(mktemp)"; trap 'rm -f "$PULL_ERR"' EXIT
 
 log "pulling images (tag: $TAG)"
@@ -580,7 +600,7 @@ if ! "${COMPOSE[@]}" pull </dev/null 2>"$PULL_ERR"; then
   # explicitly pinned tag is never silently swapped.
   if [ "$TAG" = "latest" ] && grep -qiE 'manifest unknown|not found|denied' "$PULL_ERR"; then
     warn "no :latest images are published yet — falling back to :edge (latest default-branch build)."
-    sed -i.bak "s|^VECTORSTEP_VERSION=.*|VECTORSTEP_VERSION=edge|" .env && rm -f .env.bak
+    sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=edge|" .env && rm -f .env.bak
     "${COMPOSE[@]}" pull </dev/null || { cat "$PULL_ERR" >&2; die "image pull failed for :edge as well."; }
   else
     cat "$PULL_ERR" >&2
@@ -620,6 +640,7 @@ GW_IMAGE="$("${COMPOSE[@]}" config --images </dev/null 2>/dev/null | grep -m1 '/
 [ -n "$VS_IMAGE" ] && seed_from_image "$VS_IMAGE" /app/samples/webhooks  "$INSTALL_DIR/webhooks"  "webhooks"
 if [ "$WITH_GATEWAY" = 1 ] && [ -n "$GW_IMAGE" ]; then
   seed_from_image "$GW_IMAGE" /app/samples/agents "$INSTALL_DIR/agents" "agents"
+  seed_from_image "$GW_IMAGE" /app/samples/skills "$INSTALL_DIR/skills" "skills"
 fi
 
 # --- Gateway token bootstrap ----------------------------------------------
@@ -684,7 +705,9 @@ echo "    API docs     : http://localhost:$PORT/docs"
 echo "    Installed in : $INSTALL_DIR"
 echo "    Pipelines    : $INSTALL_DIR/pipelines   (edit on the host; the container sees them)"
 echo "    Steps        : $INSTALL_DIR/steps"
+echo "    Shell scripts: $INSTALL_DIR/scripts  (disabled by default; see security.shell_steps in config.yaml)"
 [ "$WITH_GATEWAY" = 1 ] && echo "    Agents       : $INSTALL_DIR/agents"
+[ "$WITH_GATEWAY" = 1 ] && echo "    Skills       : $INSTALL_DIR/skills"
 echo "    Manage with  : cd $INSTALL_DIR && docker compose ps|logs|down"
 echo "    Upgrade with : re-run this installer"
 echo "    Telemetry    : anonymous startup ping (version/OS/arch only, no config or"

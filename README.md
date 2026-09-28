@@ -62,7 +62,7 @@ suggests the container path instead.
 curl -sSL .../install.sh | sudo bash -s -- --native
 
 # Remove the units and /opt, /etc — keeps the database and authored
-# pipelines/agents under /var/lib, printing where they are.
+# pipelines/agents/skills under /var/lib, printing where they are.
 curl -sSL .../install.sh | sudo bash -s -- --native --uninstall
 
 # Also remove /var/lib, /var/log, and the vectorstep user. Irreversible —
@@ -122,8 +122,9 @@ a firewall — the Gateway's admin token can rewrite agent definitions.
    and writes it into `.env` — so the service starts already authenticated
    rather than needing a manual copy-paste and restart. The Gateway also
    mints a separate admin token, printed at the end for whoever authors
-   agents (a Gateway MCP client) — not written to any file here.
-5. Starts the full stack and seeds the sample pipelines on a first install.
+   agents and skills (a Gateway MCP client) — not written to any file here.
+5. Starts the full stack and seeds the sample pipelines, agents, and skills
+   on a first install.
 
 ## Telemetry
 

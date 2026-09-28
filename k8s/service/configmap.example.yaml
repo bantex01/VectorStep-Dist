@@ -85,3 +85,14 @@ data:
       # https://vectorstep.io/docs/reference/config/ before enabling it.
       allow_shell_checks: false   # default: false
       template_sandbox: true      # default: true
+      # executor: shell pipeline steps — see https://vectorstep.io/docs/reference/config/
+      # before enabling. scripts_dir must be delivered as its own read-only
+      # ConfigMap volume (see the commented "scripts" volume/volumeMount in
+      # deployment.yaml, same pattern as the pipelines/steps examples there)
+      # — never the PVC-resident /data tree, since shell_steps.allowed is
+      # host/operator-managed and must not be reachable through the
+      # pipeline-write API's /data/pipelines, /data/steps mounts.
+      shell_steps:
+        enabled: false             # default: false
+        scripts_dir: /etc/vectorstep/scripts
+        allowed: []

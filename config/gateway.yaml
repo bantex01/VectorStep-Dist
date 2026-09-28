@@ -7,6 +7,7 @@ server:
   port: 18780
 
 agents_dir: /data/agents
+skills_dir: /data/skills
 
 identity:
   path: /data/identity

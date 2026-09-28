@@ -120,6 +120,14 @@ spec:
             # - name: steps
             #   mountPath: /data/steps
             #   readOnly: true
+            # Uncomment to deliver security.shell_steps.allowed scripts (only needed
+            # if you enable shell steps — see configmap.example.yaml). Read-only and
+            # separate from the pipelines/steps mounts above on purpose: scripts are
+            # host/operator-managed only, never reachable through the pipeline-write
+            # API's /data/pipelines, /data/steps.
+            # - name: scripts
+            #   mountPath: /etc/vectorstep/scripts
+            #   readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -152,3 +160,6 @@ spec:
         # - name: steps
         #   configMap:
         #     name: vectorstep-steps       # kubectl create configmap vectorstep-steps --from-file=./steps/
+        # - name: scripts
+        #   configMap:
+        #     name: vectorstep-shell-scripts   # kubectl create configmap vectorstep-shell-scripts --from-file=./scripts/
