@@ -1,0 +1,39 @@
+# EXAMPLE — .gitlab-ci.yml for route A (API push). Copy, edit, commit.
+#
+# NOT run against a real GitLab by the VectorStep project: the commands it calls
+# (push.sh) are tested; the surrounding YAML is a template to adapt. The same two
+# commands work from any CI system.
+#
+# Setup:
+#   1. Copy push.sh into your config repo (assumed here: ci/push.sh).
+#   2. Keep your config in config/{steps,pipelines,agents/<name>/}.
+#   3. Settings > CI/CD > Variables (Masked, Protected): VECTORSTEP_URL,
+#      VECTORSTEP_ADMIN_TOKEN, and for agents GATEWAY_URL, GATEWAY_ADMIN_TOKEN.
+#      The Gateway has no Ingress by default — see gateway-ingress.example.yaml,
+#      or use a runner inside the cluster and the in-cluster Service URLs
+#      (http://vectorstep.<ns>.svc:8000, http://vectorstep-gateway.<ns>.svc:18780).
+#
+# A merge request is validated against the live service and changes nothing;
+# a merge to the default branch applies it and it is live immediately.
+stages: [validate, deploy]
+
+default:
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache bash curl jq
+
+validate-config:
+  stage: validate
+  script:
+    - ./ci/push.sh validate config
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+deploy-config:
+  stage: deploy
+  script:
+    - ./ci/push.sh apply config
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment: production
+  resource_group: vectorstep   # one deploy at a time

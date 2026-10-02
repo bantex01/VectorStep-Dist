@@ -1,0 +1,75 @@
+# EXAMPLE — copy, edit, and apply into the VectorStep namespace
+# (kubectl -n <namespace> apply -f ci-rbac.example.yaml). Do not apply verbatim
+# without reading the notes below.
+#
+# A least-privilege identity for a CI job that runs sync.sh (route B) — and,
+# with the extra ConfigMap rule below, route C. It can look at the VectorStep
+# Deployments and exec into their pods, and nothing else: it cannot read
+# Secrets, cannot touch other namespaces, and cannot change the Deployments.
+#
+# `pods/exec` is a powerful verb: whoever holds this identity can run commands
+# inside the VectorStep pods (which hold the admin tokens in their environment).
+# Treat the credential accordingly — store it as a masked/protected CI variable,
+# scope it to protected branches, and prefer a short-lived token (see below).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vectorstep-ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vectorstep-ci
+rules:
+  # kubectl exec deploy/<name> resolves the Deployment to one of its pods.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["vectorstep", "vectorstep-gateway"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  # Route C only: apply.sh reads the config-reloader sidecar's log to confirm
+  # the reload happened (and to fail the job if it was rejected).
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Route C only (GitOps ConfigMap): lets the job `kubectl apply -k` the
+  # pipeline/step/agent ConfigMaps. Remove this rule if you only use route B.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vectorstep-ci
+subjects:
+  - kind: ServiceAccount
+    name: vectorstep-ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vectorstep-ci
+---
+# Getting a credential for CI. Either:
+#
+#   short-lived (preferred — mint one per pipeline run from a trusted job):
+#     kubectl -n <ns> create token vectorstep-ci --duration=15m
+#
+#   or a long-lived one, if your CI can't mint tokens (rotate it regularly):
+#     apply the Secret below, then read its `token` key.
+#
+# Build a kubeconfig from the token + your cluster's API server URL and CA,
+# and store it as a GitLab *file* variable (e.g. KUBECONFIG_VECTORSTEP).
+#
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: vectorstep-ci-token
+#   annotations:
+#     kubernetes.io/service-account.name: vectorstep-ci
+# type: kubernetes.io/service-account-token

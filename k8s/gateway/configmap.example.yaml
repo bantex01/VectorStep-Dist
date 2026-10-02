@@ -26,6 +26,12 @@ data:
       # hop (see ../service/configmap.example.yaml's commented executors.gateway
       # block) rather than relying on the namespace's NetworkPolicy alone.
 
+    # Set to false when agents are assembled from a ConfigMap (delivery route C):
+    # the write API (POST/PUT/DELETE /agents, /skills) then refuses with a clear
+    # 403. Validate and /reload keep working. Read at startup — restart to change.
+    # Default: true.
+    # writes_enabled: false
+
     agents_dir: /data/agents
     skills_dir: /data/skills
 

@@ -50,7 +50,7 @@ spec:
       initContainers:
         - name: init-data-dirs
           image: ghcr.io/bantex01/vectorstep:latest
-          command: ["sh", "-c", "mkdir -p /data/db /data/artifacts /data/logs /data/pipelines /data/steps"]
+          command: ["sh", "-c", "mkdir -p /data/db /data/artifacts /data/logs /data/pipelines /data/steps /data/security_policies"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -111,9 +111,11 @@ spec:
             # - name: tls
             #   mountPath: /etc/vectorstep/tls
             #   readOnly: true
-            # Uncomment to manage pipelines/steps as versioned ConfigMaps instead of
-            # PVC-resident files (mutually exclusive with editing them via the UI/API,
-            # which writes to /data/pipelines and /data/steps on the PVC):
+            # To manage pipelines/steps as versioned ConfigMaps instead of PVC-resident
+            # files (mutually exclusive with the write API, which writes to
+            # /data/pipelines and /data/steps), use the tested templates in
+            # delivery/c-gitops-configmap/ — they add these mounts plus a sidecar
+            # that hot-reloads on change. Hand-rolled equivalent:
             # - name: pipelines
             #   mountPath: /data/pipelines
             #   readOnly: true

@@ -59,6 +59,13 @@ both secrets up front — the service's config points at the Gateway's Service
 (`vectorstep-gateway:18780`), and they deploy as a **matched pair** with no
 wire-version negotiation between them yet, so run matching image tags.
 
+## Changing config after install
+
+Pipelines, steps and agents hot-reload — no restart. [`delivery/`](delivery/)
+has three documented routes with copy-and-tweak templates (API push from CI,
+`kubectl` copy + reload, and a GitOps ConfigMap route with a reload sidecar);
+start with [`delivery/README.md`](delivery/README.md).
+
 ## The Gateway's two tokens
 
 `VECTORSTEP_GATEWAY_ADMIN_TOKEN` and `VECTORSTEP_GATEWAY_INVOKE_TOKEN` in

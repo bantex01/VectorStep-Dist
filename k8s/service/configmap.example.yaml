@@ -41,9 +41,22 @@ data:
       # (or a one-shot Job running the same command) — then roll the
       # Deployment. That's exactly what auto_migrate exists for.
 
+    # Set to false when pipelines/steps are mounted read-only from ConfigMaps
+    # (delivery route C): the write API (POST/PUT/DELETE /pipelines, /steps) then
+    # refuses with a clear 403 instead of a 500 from the read-only filesystem.
+    # /pipelines/validate and /reload keep working. Default: true.
+    # writes_enabled: false
+
     pipeline_config_dir: /data/pipelines   # see the commented ConfigMap-mount alternative
     step_library_dir: /data/steps          # in deployment.yaml if you'd rather manage these
                                             # as versioned ConfigMaps than PVC-resident files.
+
+    # Security policies (see https://vectorstep.io/docs/pipelines/security-policies/).
+    # Defaults to a path relative to the working directory, which is NOT on the
+    # PVC in a container — so without this line policy files can't be changed
+    # at runtime. Create the directory's contents the same way as pipelines
+    # (see https://vectorstep.io/docs/operations/changing-config-on-kubernetes/).
+    security_policies_dir: /data/security_policies
 
     artifacts:
       dir: /data/artifacts

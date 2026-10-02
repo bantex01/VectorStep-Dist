@@ -1,0 +1,41 @@
+# EXAMPLE — .gitlab-ci.yml for route B (copy files into the pods + hot reload).
+# Copy, edit, commit.
+#
+# NOT run against a real GitLab by the VectorStep project: sync.sh is tested
+# (including rollback and as the least-privilege ServiceAccount in
+# ci-rbac.example.yaml); this surrounding YAML is a template to adapt.
+#
+# Setup:
+#   1. Apply ci-rbac.example.yaml in the VectorStep namespace.
+#   2. Build a kubeconfig for the vectorstep-ci ServiceAccount and store it as a
+#      GitLab *File* variable named KUBECONFIG_VECTORSTEP (Protected).
+#   3. Copy sync.sh into your config repo (assumed here: ci/sync.sh), with
+#      config in config/{pipelines,steps} (service) and config/{agents,skills} (gateway).
+#
+# No VectorStep tokens are needed in GitLab: the reload is made from inside the
+# pod. If the reload is rejected the job rolls the files back and FAILS.
+stages: [deploy]
+
+default:
+  image: alpine/k8s:1.32.0     # kubectl + bash; any image with both will do
+  variables:
+    KUBECONFIG: $KUBECONFIG_VECTORSTEP
+    NAMESPACE: vectorstep
+
+deploy-service:
+  stage: deploy
+  script:
+    - ./ci/sync.sh service config
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [config/pipelines/**/*, config/steps/**/*]
+  resource_group: vectorstep
+
+deploy-gateway:
+  stage: deploy
+  script:
+    - ./ci/sync.sh gateway config
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [config/agents/**/*, config/skills/**/*]
+  resource_group: vectorstep

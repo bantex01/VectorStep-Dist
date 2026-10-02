@@ -1,0 +1,47 @@
+# EXAMPLE — .gitlab-ci.yml for route C (GitOps ConfigMap + reloader sidecar).
+# Copy, edit, commit.
+#
+# NOT run against a real GitLab by the VectorStep project: apply.sh and the
+# sidecar are tested end to end; this surrounding YAML is a template to adapt.
+#
+# Setup:
+#   1. One time: apply service-patch.yaml / gateway-patch.yaml (see README) and
+#      set `writes_enabled: false` in both services' config.yaml.
+#   2. Apply ../b-file-copy/ci-rbac.example.yaml (it includes the ConfigMap rule
+#      and the pods/log access apply.sh needs to wait) and store the
+#      ServiceAccount kubeconfig as a GitLab *File* variable KUBECONFIG_VECTORSTEP.
+#   3. Copy apply.sh and reloader.py into your config repo (assumed: ci/), with
+#      config in config/{pipelines,steps,agents/<name>/}.
+#
+# apply.sh waits for the reload and FAILS the job if it is rejected. Note the
+# live config is untouched on a rejection, but the bad file stays in the
+# ConfigMap — fix forward promptly: a pod restart with a bad pipeline in place
+# skips that pipeline (v0.1.10 and earlier: won't start). Catching it before
+# merge is what the optional validate job is for.
+stages: [validate, deploy]
+
+default:
+  image: alpine/k8s:1.32.0
+  variables:
+    KUBECONFIG: $KUBECONFIG_VECTORSTEP
+    NAMESPACE: vectorstep
+
+# Optional: needs the route A variables (VECTORSTEP_URL / VECTORSTEP_ADMIN_TOKEN)
+# and copies of push.sh. The validate endpoints keep working with writes_enabled: false.
+validate-config:
+  stage: validate
+  script:
+    - ./ci/push.sh validate config
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  allow_failure: false
+
+deploy-config:
+  stage: deploy
+  script:
+    - ./ci/apply.sh config
+  variables:
+    WAIT_TIMEOUT: "300"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  resource_group: vectorstep

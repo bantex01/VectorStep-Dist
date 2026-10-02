@@ -1,0 +1,70 @@
+# Route C, one-time change to the Gateway Deployment — apply once:
+#
+#   kubectl -n <ns> patch deploy/vectorstep-gateway --patch-file gateway-patch.yaml
+#
+# Agents come from ONE flat ConfigMap (vectorstep-agents) whose keys are
+# `<agent>.agent.yaml` and `<agent>.soul.md` — ConfigMap keys cannot contain
+# '/', so nested agents/<name>/ directories can't be mounted directly, and
+# listing each agent in this Deployment would restart the pod every time you
+# add one. Instead an init container and the config-reloader sidecar assemble
+# /data/agents from that ConfigMap into a shared emptyDir, and the sidecar
+# reloads the Gateway on change. Adding an agent is just a ConfigMap update.
+#
+# Skills are not covered by this route (they have nested files); manage them
+# with route A or B. Also set `writes_enabled: false` in the Gateway's
+# config.yaml (read at startup — restart once after setting it).
+#
+# Pin both `image` values to the same tag as the main container.
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: agents-init
+          image: ghcr.io/bantex01/vectorstep-gateway:latest
+          command: ["python", "/reloader/reloader.py"]
+          env:
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+            - { name: MODE, value: "once" }
+            - { name: AGENTS_SRC, value: "/agents-src" }
+            - { name: AGENTS_DST, value: "/data/agents" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: agents-src, mountPath: /agents-src, readOnly: true }
+            - { name: agents, mountPath: /data/agents }
+            - { name: reloader, mountPath: /reloader, readOnly: true }
+      containers:
+        - name: vectorstep-gateway
+          volumeMounts:
+            - { name: agents, mountPath: /data/agents, readOnly: true }
+        - name: config-reloader
+          image: ghcr.io/bantex01/vectorstep-gateway:latest
+          command: ["python", "/reloader/reloader.py"]
+          env:
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+            - { name: AGENTS_SRC, value: "/agents-src" }
+            - { name: AGENTS_DST, value: "/data/agents" }
+            - { name: RELOAD_URL, value: "http://localhost:18780/reload" }  # https://... if the Gateway terminates TLS
+            - { name: INTERVAL, value: "10" }
+            - name: ADMIN_TOKEN
+              valueFrom: { secretKeyRef: { name: vectorstep-gateway-secrets, key: VECTORSTEP_GATEWAY_ADMIN_TOKEN } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: agents-src, mountPath: /agents-src, readOnly: true }
+            - { name: agents, mountPath: /data/agents }
+            - { name: reloader, mountPath: /reloader, readOnly: true }
+      volumes:
+        - name: agents-src
+          configMap: { name: vectorstep-agents }
+        - name: agents
+          emptyDir: {}
+        - name: reloader
+          configMap: { name: vectorstep-reloader }

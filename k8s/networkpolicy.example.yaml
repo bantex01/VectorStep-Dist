@@ -33,6 +33,14 @@ spec:
         - podSelector:
             matchLabels:
               app: vectorstep
+        # Route A (API push) only — a CI job running INSIDE the cluster that
+        # calls the Gateway's write API. Uncomment and set your runners'
+        # namespace. Routes B and C use `kubectl exec` / ConfigMaps and don't
+        # need this: exec goes through the API server, not the pod network.
+        # See delivery/README.md.
+        # - namespaceSelector:
+        #     matchLabels:
+        #       kubernetes.io/metadata.name: ci-runners
       ports:
         - protocol: TCP
           port: 18780

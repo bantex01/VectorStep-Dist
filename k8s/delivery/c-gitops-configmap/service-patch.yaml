@@ -1,0 +1,47 @@
+# Route C, one-time change to the service Deployment — apply once:
+#
+#   kubectl -n <ns> patch deploy/vectorstep --patch-file service-patch.yaml
+#
+# After this, pipelines and steps come from the ConfigMaps that apply.sh
+# maintains, mounted read-only over /data/pipelines and /data/steps, and a
+# `config-reloader` sidecar hot-reloads the service whenever they change.
+# Also set `writes_enabled: false` in the service's config.yaml: the mounts are
+# read-only, so the write API can't work, and this makes it say so clearly.
+#
+# Pin the sidecar `image` to the same tag as the main container.
+spec:
+  template:
+    spec:
+      containers:
+        - name: vectorstep
+          volumeMounts:
+            - { name: pipelines, mountPath: /data/pipelines, readOnly: true }
+            - { name: steps, mountPath: /data/steps, readOnly: true }
+        - name: config-reloader
+          image: ghcr.io/bantex01/vectorstep:latest
+          command: ["python", "/reloader/reloader.py"]
+          env:
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+            - { name: WATCH_DIRS, value: "/data/pipelines,/data/steps" }
+            - { name: RELOAD_URL, value: "http://localhost:8000/reload" }   # https://... if the service terminates TLS
+            - { name: INTERVAL, value: "10" }
+            - name: ADMIN_TOKEN
+              valueFrom: { secretKeyRef: { name: vectorstep-secrets, key: VECTORSTEP_ADMIN_TOKEN } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: pipelines, mountPath: /data/pipelines, readOnly: true }
+            - { name: steps, mountPath: /data/steps, readOnly: true }
+            - { name: reloader, mountPath: /reloader, readOnly: true }
+      volumes:
+        - name: pipelines
+          configMap: { name: vectorstep-pipelines }
+        - name: steps
+          configMap: { name: vectorstep-steps }
+        - name: reloader
+          configMap: { name: vectorstep-reloader }
