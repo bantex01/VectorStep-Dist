@@ -238,6 +238,82 @@ else
 fi
 
 echo
+echo "==> 7. MCP server releases (independent of the product tag — a manual tag per package, published to PyPI)"
+# check_mcp <repo dir name> <github repo> <pypi name> <release-notes heading prefix> <notes baseline version>
+check_mcp() {
+  local name="$1" gh_repo="$2" pypi="$3" heading="$4" baseline="$5"
+  local dir="$GITHUB_ROOT/$name"
+  if [ ! -d "$dir/.git" ]; then warn "$name: no checkout at $dir"; return; fi
+  git -C "$dir" fetch --tags --quiet 2>/dev/null || true
+  local tag; tag="$(git -C "$dir" tag --list 'v*' | sort -V | tail -1)"
+  if [ -z "$tag" ]; then warn "$name: no release tags yet"; return; fi
+  local tagver="${tag#v}"
+  local head_ver tag_file_ver
+  head_ver="$(git -C "$dir" show HEAD:pyproject.toml 2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)"
+  tag_file_ver="$(git -C "$dir" show "$tag:pyproject.toml" 2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)"
+  echo "  $name: latest tag $tag, pyproject.toml at HEAD says $head_ver"
+
+  # a. The tag must point at a commit whose pyproject.toml has the same version —
+  #    publish.yml refuses otherwise. This is the "tagged before the bump commit was
+  #    pushed" mistake (2026-10-02): the tag lands on the OLD commit.
+  if [ "$tag_file_ver" != "$tagver" ]; then
+    warn "$name: $tag points at a commit whose pyproject.toml says $tag_file_ver — publish.yml will refuse it (nothing is published)"
+    action "$name: $tag is on the wrong commit (pyproject.toml there says $tag_file_ver). Push the version-bump commit first, then move the tag onto it:"$'\n'"    cd \"$dir\" && git pull"$'\n'"    git tag -d $tag && git push origin --delete $tag"$'\n'"    git tag $tag && git push origin $tag"
+  else
+    ok "$tag matches pyproject.toml at the tagged commit"
+  fi
+
+  # b. Bumped but never tagged / unreleased work.
+  local ahead; ahead="$(git -C "$dir" rev-list --count "$tag..HEAD" 2>/dev/null || echo 0)"
+  if [ -n "$head_ver" ] && [ "$head_ver" != "$tagver" ]; then
+    warn "$name: pyproject.toml is $head_ver but the latest tag is $tag — bumped but not tagged?"
+    action "$name: if the $head_ver bump commit is pushed and you mean to release it:"$'\n'"    cd \"$dir\" && git tag v$head_ver && git push origin v$head_ver"$'\n'"  (Full procedure: DevDocs runbook cutting-a-release.md §7. Push the bump commit BEFORE tagging.)"
+  elif [ "$ahead" -gt 0 ]; then
+    echo "  NOTE: $name has $ahead commit(s) since $tag with no version bump — unreleased. Fine if nothing user-facing changed; otherwise bump + release (cutting-a-release.md §7)."
+  else
+    ok "$name: no unreleased commits since $tag"
+  fi
+
+  # c. Is that version actually on PyPI? (Query the JSON API — 'pip index' caches.)
+  local pypi_ver; pypi_ver="$(curl -fsS --max-time 20 "https://pypi.org/pypi/$pypi/json?$(date +%s)" 2>/dev/null | jq -r '.info.version' 2>/dev/null || true)"
+  if [ -z "$pypi_ver" ] || [ "$pypi_ver" = "null" ]; then
+    warn "$pypi: couldn't read the latest version from PyPI"
+  elif [ "$pypi_ver" = "$tagver" ]; then
+    ok "PyPI $pypi is at $pypi_ver, matching $tag"
+  else
+    warn "PyPI $pypi is at $pypi_ver but the latest tag is $tag — not published yet, or the publish failed"
+    action "$pypi: PyPI has $pypi_ver, tag is $tag. Check the publish run (it may be waiting for approval of the 'pypi' environment):"$'\n'"    gh run list --repo $gh_repo --workflow publish.yml --branch $tag"
+  fi
+
+  # d. Did the publish run for that tag succeed?
+  local run; run="$(gh run list --repo "$gh_repo" --workflow publish.yml --branch "$tag" --limit 1 --json status,conclusion --jq '.[0] | (.status + "/" + (.conclusion // ""))' 2>/dev/null || true)"
+  case "$run" in
+    completed/success) ok "publish workflow succeeded for $tag" ;;
+    "")                warn "$name: no publish workflow run found for $tag"
+                       action "$name: no publish run for $tag — was the tag pushed? gh run list --repo $gh_repo --workflow publish.yml" ;;
+    completed/*)       warn "$name: publish workflow for $tag finished as: $run"
+                       action "$name: publish failed for $tag — read why:"$'\n'"    gh run view --repo $gh_repo \$(gh run list --repo $gh_repo --workflow publish.yml --branch $tag --limit 1 --json databaseId --jq '.[0].databaseId') --log-failed" ;;
+    *)                 warn "$name: publish workflow for $tag is still $run — wait (or approve the 'pypi' environment), then re-run" ;;
+  esac
+
+  # e. Public release-notes entry (versions at or below the baseline predate the process).
+  if [ "$(printf '%s\n%s\n' "$tagver" "$baseline" | sort -V | tail -1)" = "$baseline" ]; then
+    ok "$tag predates the release notes for this package (baseline $baseline) — nothing to check"
+  else
+    local slug; slug="$(echo "$heading $tagver" | tr 'A-Z' 'a-z' | tr -d '.' | tr ' ' '-')"
+    if curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null | grep -q "id=\"$slug\""; then
+      ok "release notes have an entry for $heading $tagver"
+    else
+      warn "no release-notes entry for $heading $tagver at $NOTES_URL"
+      action "Add a '## $heading $tagver' entry (then 'Released $(date +%F)') to VectorStep-Website/src/content/docs/docs/about/release-notes.md, then:"$'\n'"    cd \"$GITHUB_ROOT/VectorStep-Website\" && npm run check-release-notes && git add -A && git commit -m \"Release notes: $heading $tagver\" && git push"$'\n'"  (Guide: DevDocs runbook cutting-a-release.md §2b / §7.)"
+    fi
+  fi
+}
+# Baselines: release notes start after these versions (the releases made before the notes existed).
+check_mcp VectorStep-Service-MCP bantex01/VectorStep-Service-MCP vectorstep-service-mcp "Service MCP" 0.1.4
+check_mcp VectorStep-Gateway-MCP bantex01/VectorStep-Gateway-MCP vectorstep-gateway-mcp "Gateway MCP" 0.1.2
+
+echo
 if $PASS; then
   echo "==> all clear at $TARGET_TAG"
 else
