@@ -223,6 +223,20 @@ for image in vectorstep vectorstep-gateway; do
 done
 
 echo
+echo "==> 6. public release notes published for $TARGET_TAG"
+NOTES_URL="https://vectorstep.io/docs/about/release-notes/"
+NOTES_ANCHOR="${TARGET_TAG//./}"   # v0.1.13 -> v0113, the id Starlight gives "## v0.1.13"
+NOTES_BASELINE="0.1.12"             # release notes start after this version; earlier ones aren't itemised
+if [ "$(printf '%s\n%s\n' "$TARGET_VERSION" "$NOTES_BASELINE" | sort -V | tail -1)" = "$NOTES_BASELINE" ]; then
+  ok "$TARGET_TAG predates the release notes (they start after v$NOTES_BASELINE) — nothing to check"
+elif curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null | grep -q "id=\"$NOTES_ANCHOR\""; then
+  ok "$NOTES_URL has an entry for $TARGET_TAG"
+else
+  warn "no release-notes entry for $TARGET_TAG at $NOTES_URL"
+  action "Write the $TARGET_TAG entry in VectorStep-Website (src/content/docs/docs/about/release-notes.md, newest first, '## $TARGET_TAG' then 'Released YYYY-MM-DD'), commit and push so the site deploys, then re-run this script. See the 'Release notes' step in the release runbook."
+fi
+
+echo
 if $PASS; then
   echo "==> all clear at $TARGET_TAG"
 else

@@ -43,7 +43,7 @@ data:
 
     # No MCP servers by default — add the ones your deployment needs (see
     # https://vectorstep.io/docs/operations/deployment/). npx-based servers fetch on first
-    # startup unless preinstalled in a derived image; see https://vectorstep.io/docs/installation/docker/.
+    # startup unless preinstalled in a derived image; see https://vectorstep.io/docs/gateway/mcp-tool-servers/.
     mcp_servers: {}
 
     providers:
