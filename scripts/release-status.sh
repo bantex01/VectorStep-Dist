@@ -233,7 +233,8 @@ elif curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null | grep -q "id=\"$NOTES_ANC
   ok "$NOTES_URL has an entry for $TARGET_TAG"
 else
   warn "no release-notes entry for $TARGET_TAG at $NOTES_URL"
-  action "Write the $TARGET_TAG entry in VectorStep-Website (src/content/docs/docs/about/release-notes.md, newest first, '## $TARGET_TAG' then 'Released YYYY-MM-DD'), commit and push so the site deploys, then re-run this script. See the 'Release notes' step in the release runbook."
+  WEBSITE_ROOT="$GITHUB_ROOT/VectorStep-Website"
+  action "Add a $TARGET_TAG entry to the public release notes. The website is not tagged or versioned — it's a docs page; pushing it deploys it. $TARGET_TAG is already released, so nothing else needs tagging. Run:"$'\n'"    cd \"$WEBSITE_ROOT\""$'\n'"    \$EDITOR src/content/docs/docs/about/release-notes.md   # add the entry below at the TOP of the entries (above the previous release)"$'\n'"    npm run check-release-notes"$'\n'"    git add -A && git commit -m \"Release notes $TARGET_TAG\" && git push   # the site deploys"$'\n'"    cd \"$DIST_ROOT\" && ./scripts/release-status.sh   # confirm"$'\n'"  Entry to add (edit the bullets; delete groups you don't need; group names are fixed: Added, Changed, Fixed, Security, Upgrade notes; prefix each bullet **VectorStep:** or **Gateway:**; if there is no user-facing change use the single 'No functional changes in this release.' bullet under Changed):"$'\n'"    ## $TARGET_TAG"$'\n'"    Released $(date +%F)"$'\n'""$'\n'"    ### Changed"$'\n'"    - **VectorStep and Gateway:** ..."$'\n'"  Full guide: DevDocs runbook cutting-a-release.md, step 2b."
 fi
 
 echo
