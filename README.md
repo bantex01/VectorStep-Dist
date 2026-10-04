@@ -5,6 +5,10 @@ installer, the compose stack, default configuration, and third-party licence
 notices. It contains no VectorStep source code — the software is distributed as
 container images from `ghcr.io`.
 
+> **Beta.** VectorStep is in beta. Please
+> [let us know](https://vectorstep.io/docs/about/status-and-support/) if
+> something breaks.
+
 ## Install
 
 ```sh
