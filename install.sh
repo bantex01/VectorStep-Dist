@@ -596,13 +596,14 @@ fi
 # semver pattern strips it), so "v0.1.8" and "0.1.8" are both accepted here.
 # `edge` and any other explicit pin are left alone — the user chose them.
 CUR_TAG="$(grep -E '^VECTORSTEP_IMAGE_TAG=' .env | cut -d= -f2)"; CUR_TAG="${CUR_TAG:-latest}"
+AUTO_PINNED=0   # 1 when the tag was resolved by us (not typed by the user), so a failed pull may fall back
 if [ -n "$VERSION_TAG" ]; then
   NEW_TAG="${VERSION_TAG#v}"
   case "$VERSION_TAG" in latest|edge) NEW_TAG="$VERSION_TAG" ;; esac
 elif [ "$CUR_TAG" = "latest" ] || [ "$UPGRADE" = 1 ]; then
   REL="$(resolve_latest_release)"
   if [ -n "$REL" ]; then
-    NEW_TAG="${REL#v}"
+    NEW_TAG="${REL#v}"; AUTO_PINNED=1
   else
     NEW_TAG="$CUR_TAG"
     warn "could not resolve the latest release from $DIST_REPO — leaving the image tag as '$CUR_TAG'."
@@ -644,7 +645,16 @@ if ! "${COMPOSE[@]}" pull </dev/null 2>"$PULL_ERR"; then
   # back to `edge`, which every push to the default branch publishes, rather
   # than failing an install for a reason the user can do nothing about. An
   # explicitly pinned tag is never silently swapped.
-  if [ "$TAG" = "latest" ] && grep -qiE 'manifest unknown|not found|denied' "$PULL_ERR"; then
+  if [ "$AUTO_PINNED" = 1 ] && grep -qiE 'manifest unknown|not found' "$PULL_ERR"; then
+    # The Dist release page appears as soon as the first native build finishes;
+    # the GHCR images land a little later. In that window the newest release has
+    # no images yet. Pull :latest (still the previous release) for now and pin
+    # to whatever that image reports, rather than failing the install.
+    warn "release $TAG's images aren't published yet (it is probably still building) — using the previous release instead."
+    sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=latest|" .env && rm -f .env.bak
+    "${COMPOSE[@]}" pull </dev/null || { cat "$PULL_ERR" >&2; die "image pull failed for :latest as well."; }
+    FELL_BACK=1
+  elif [ "$TAG" = "latest" ] && grep -qiE 'manifest unknown|not found|denied' "$PULL_ERR"; then
     warn "no :latest images are published yet — falling back to :edge (latest default-branch build)."
     sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=edge|" .env && rm -f .env.bak
     "${COMPOSE[@]}" pull </dev/null || { cat "$PULL_ERR" >&2; die "image pull failed for :edge as well."; }
@@ -652,6 +662,18 @@ if ! "${COMPOSE[@]}" pull </dev/null 2>"$PULL_ERR"; then
     cat "$PULL_ERR" >&2
     die "image pull failed for tag '$TAG'. Check the tag exists, or re-run with --version edge."
   fi
+fi
+
+# After the fallback above, replace `latest` with the version the pulled image
+# actually is, so the install is still pinned to something concrete.
+if [ "${FELL_BACK:-0}" = 1 ]; then
+  FB_IMAGE="$(docker compose config --images </dev/null 2>/dev/null | grep -m1 '/vectorstep:' || true)"
+  FB_VER="$([ -n "$FB_IMAGE" ] && docker image inspect "$FB_IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | sed -n 's/^VECTORSTEP_VERSION=//p' | head -1 || true)"
+  case "$FB_VER" in
+    ""|dev|unknown) warn "couldn't tell which release :latest is — leaving the tag as 'latest'; re-run with --upgrade shortly." ;;
+    *) sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=${FB_VER#v}|" .env && rm -f .env.bak
+       log "pinned images to ${FB_VER#v} (the newest release with published images)" ;;
+  esac
 fi
 
 # --- Seed samples (first install only) ------------------------------------
