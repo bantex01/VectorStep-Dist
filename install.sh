@@ -32,6 +32,7 @@ NATIVE=0
 NATIVE_UNINSTALL=0
 NATIVE_PURGE=0
 NATIVE_YES=0
+UPGRADE=0
 
 log()  { printf '==> %s\n' "$1"; }
 skip() { printf '==> skip: %s\n' "$1"; }
@@ -49,6 +50,12 @@ set_env_var() {
   fi
 }
 
+# resolve_latest_release — print the newest published release tag (e.g. v0.1.8)
+# of the Dist repo, or nothing if none exists / GitHub is unreachable.
+resolve_latest_release() {
+  curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$DIST_REPO/releases/latest" </dev/null 2>/dev/null | sed -n 's#.*/tag/##p' || true
+}
+
 # --- Arguments -------------------------------------------------------------
 
 while [ $# -gt 0 ]; do
@@ -57,6 +64,7 @@ while [ $# -gt 0 ]; do
     --postgres)     WITH_POSTGRES=1; shift ;;
     --dir)          INSTALL_DIR="${2:?--dir needs a path}"; shift 2 ;;
     --version)      VERSION_TAG="${2:?--version needs a tag}"; shift 2 ;;
+    --upgrade)      UPGRADE=1; shift ;;
     --native)       NATIVE=1; shift ;;
     --uninstall)    NATIVE_UNINSTALL=1; shift ;;
     --purge)        NATIVE_PURGE=1; shift ;;
@@ -78,6 +86,9 @@ VectorStep installer.
                    SPEC-native-linux-install.md §7).
   --version TAG    Image tag (container) or release tag (--native) to
                    install (default: latest release/image).
+  --upgrade        Container install: move an existing install to the latest
+                   release. Without it, re-running keeps the version already
+                   pinned in .env and only tells you if a newer one exists.
   --native         Install standalone Linux binaries under systemd instead of
                    Docker containers. No Python, no source, no Docker needed
                    on the host. Linux only; must be run as root.
@@ -578,9 +589,44 @@ EOF
   log "added auth.tokens to config/vectorstep.yaml"
 fi
 
+# --- Pin the image tag -------------------------------------------------------
+# `latest` is a moving pointer: a manifest or `docker ps` showing it says
+# nothing about what is actually running. So a concrete release is written to
+# .env instead. Image tags carry no leading "v" (docker/metadata-action's
+# semver pattern strips it), so "v0.1.8" and "0.1.8" are both accepted here.
+# `edge` and any other explicit pin are left alone — the user chose them.
+CUR_TAG="$(grep -E '^VECTORSTEP_IMAGE_TAG=' .env | cut -d= -f2)"; CUR_TAG="${CUR_TAG:-latest}"
 if [ -n "$VERSION_TAG" ]; then
-  sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=$VERSION_TAG|" .env && rm -f .env.bak
-  log "pinned images to $VERSION_TAG"
+  NEW_TAG="${VERSION_TAG#v}"
+  case "$VERSION_TAG" in latest|edge) NEW_TAG="$VERSION_TAG" ;; esac
+elif [ "$CUR_TAG" = "latest" ] || [ "$UPGRADE" = 1 ]; then
+  REL="$(resolve_latest_release)"
+  if [ -n "$REL" ]; then
+    NEW_TAG="${REL#v}"
+  else
+    NEW_TAG="$CUR_TAG"
+    warn "could not resolve the latest release from $DIST_REPO — leaving the image tag as '$CUR_TAG'."
+  fi
+else
+  NEW_TAG="$CUR_TAG"
+  case "$CUR_TAG" in
+    edge) ;;
+    *)
+      REL="$(resolve_latest_release)"
+      if [ -n "$REL" ] && [ "${REL#v}" != "$CUR_TAG" ]; then
+        log "running $CUR_TAG; ${REL#v} is available — re-run with --upgrade to move to it"
+      fi ;;
+  esac
+fi
+if [ "$NEW_TAG" != "$CUR_TAG" ]; then
+  if grep -q '^VECTORSTEP_IMAGE_TAG=' .env; then
+    sed -i.bak "s|^VECTORSTEP_IMAGE_TAG=.*|VECTORSTEP_IMAGE_TAG=$NEW_TAG|" .env && rm -f .env.bak
+  else
+    printf 'VECTORSTEP_IMAGE_TAG=%s\n' "$NEW_TAG" >> .env
+  fi
+  log "pinned images to $NEW_TAG (was $CUR_TAG)"
+else
+  log "images pinned to $NEW_TAG"
 fi
 
 COMPOSE=(docker compose)

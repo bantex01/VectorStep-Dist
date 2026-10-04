@@ -222,6 +222,31 @@ for image in vectorstep vectorstep-gateway; do
   fi
 done
 
+# install.sh pins new installs (and --upgrade) to whatever GitHub calls this
+# repo's "latest" release, and :latest on GHCR is what unpinned users and
+# manifests pull. Both must be the release we just checked.
+echo
+echo "==> 5b. 'latest' resolves to $TARGET_TAG (what install.sh pins to, and what :latest serves)"
+LATEST_REL="$(gh release view --repo "$DIST_REPO" --json tagName --jq .tagName 2>/dev/null || true)"
+if [ "$LATEST_REL" = "$TARGET_TAG" ]; then
+  ok "$DIST_REPO's latest release is $TARGET_TAG (install.sh will pin to $TARGET_VERSION)"
+else
+  warn "$DIST_REPO's latest release is '${LATEST_REL:-none}', not $TARGET_TAG — install.sh would pin new installs and --upgrade to that. Is $TARGET_TAG still a draft or pre-release?"
+  action "$DIST_REPO: latest release is '${LATEST_REL:-none}' but $TARGET_TAG is the newest tag. If $TARGET_TAG's release is a draft/pre-release, publish it:"$'\n'"    gh release edit $TARGET_TAG --repo $DIST_REPO --draft=false --prerelease=false --latest"
+fi
+for image in vectorstep vectorstep-gateway; do
+  VER_M="$(docker manifest inspect "ghcr.io/bantex01/$image:$TARGET_VERSION" 2>/dev/null | jq -S -c . 2>/dev/null || true)"
+  LAT_M="$(docker manifest inspect "ghcr.io/bantex01/$image:latest" 2>/dev/null | jq -S -c . 2>/dev/null || true)"
+  if [ -z "$VER_M" ] || [ -z "$LAT_M" ]; then
+    warn "$image: couldn't read both :$TARGET_VERSION and :latest manifests to compare"
+  elif [ "$VER_M" = "$LAT_M" ]; then
+    ok "$image:latest is the same image as :$TARGET_VERSION"
+  else
+    warn "$image:latest is NOT the same image as :$TARGET_VERSION — unpinned pulls get a different build than the one just released"
+    action "$image: :latest differs from :$TARGET_VERSION. Check which release image.yml last tagged latest (a later tag, or a re-run of an older one, can move it):"$'\n'"    gh run list --repo bantex01/$image --workflow image.yml"
+  fi
+done
+
 echo
 echo "==> 6. public release notes published for $TARGET_TAG"
 NOTES_URL="https://vectorstep.io/docs/about/release-notes/"
@@ -234,7 +259,7 @@ elif curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null | grep -q "id=\"$NOTES_ANC
 else
   warn "no release-notes entry for $TARGET_TAG at $NOTES_URL"
   WEBSITE_ROOT="$GITHUB_ROOT/VectorStep-Website"
-  action "Add a $TARGET_TAG entry to the public release notes. The website is not tagged or versioned — it's a docs page; pushing it deploys it. $TARGET_TAG is already released, so nothing else needs tagging. Run:"$'\n'"    cd \"$WEBSITE_ROOT\""$'\n'"    \$EDITOR src/content/docs/docs/about/release-notes.md   # add the entry below at the TOP of the entries (above the previous release)"$'\n'"    npm run check-release-notes"$'\n'"    git add -A && git commit -m \"Release notes $TARGET_TAG\" && git push   # the site deploys"$'\n'"    cd \"$DIST_ROOT\" && ./scripts/release-status.sh   # confirm"$'\n'"  Entry to add (edit the bullets; delete groups you don't need; group names are fixed: Added, Changed, Fixed, Security, Upgrade notes; prefix each bullet **VectorStep:** or **Gateway:**; if there is no user-facing change use the single 'No functional changes in this release.' bullet under Changed):"$'\n'"    ## $TARGET_TAG"$'\n'"    Released $(date +%F)"$'\n'""$'\n'"    ### Changed"$'\n'"    - **VectorStep and Gateway:** ..."$'\n'"  Full guide: DevDocs runbook cutting-a-release.md, step 2b."
+  action "Add a $TARGET_TAG entry to the public release notes. The website is not tagged or versioned — it's a docs page; pushing it deploys it. Normally this entry is written BEFORE the push that auto-version.yml tags, so seeing this means it was missed. Run:"$'\n'"    cd \"$WEBSITE_ROOT\""$'\n'"    \$EDITOR src/content/docs/docs/about/release-notes.md   # add the entry below at the TOP of the entries (above the previous release)"$'\n'"    npm run check-release-notes"$'\n'"    git add -A && git commit -m \"Release notes $TARGET_TAG\" && git push   # the site deploys"$'\n'"    cd \"$DIST_ROOT\" && ./scripts/release-status.sh   # confirm"$'\n'"  Entry to add (edit the bullets; delete groups you don't need; group names are fixed: Added, Changed, Fixed, Security, Upgrade notes; prefix each bullet **VectorStep:** or **Gateway:**; if there is no user-facing change use the single 'No functional changes in this release.' bullet under Changed):"$'\n'"    ## $TARGET_TAG"$'\n'""$'\n'"    ### Changed"$'\n'"    - **VectorStep and Gateway:** ..."$'\n'"  Full guide: DevDocs runbook cutting-a-release.md, step 2b."
 fi
 
 echo
@@ -305,7 +330,7 @@ check_mcp() {
       ok "release notes have an entry for $heading $tagver"
     else
       warn "no release-notes entry for $heading $tagver at $NOTES_URL"
-      action "Add a '## $heading $tagver' entry (then 'Released $(date +%F)') to VectorStep-Website/src/content/docs/docs/about/release-notes.md, then:"$'\n'"    cd \"$GITHUB_ROOT/VectorStep-Website\" && npm run check-release-notes && git add -A && git commit -m \"Release notes: $heading $tagver\" && git push"$'\n'"  (Guide: DevDocs runbook cutting-a-release.md §2b / §7.)"
+      action "Add a '## $heading $tagver' entry (no date) to VectorStep-Website/src/content/docs/docs/about/release-notes.md, then:"$'\n'"    cd \"$GITHUB_ROOT/VectorStep-Website\" && npm run check-release-notes && git add -A && git commit -m \"Release notes: $heading $tagver\" && git push"$'\n'"  (Guide: DevDocs runbook cutting-a-release.md §2b / §7.)"
     fi
   fi
 }
