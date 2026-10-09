@@ -61,7 +61,7 @@ wire-version negotiation between them yet, so run matching image tags.
 
 ## Changing config after install
 
-Pipelines, steps and agents hot-reload — no restart. [`delivery/`](delivery/)
+Pipelines, steps, agents and skills hot-reload — no restart (shell-step scripts are the exception: they need a restart, see `delivery/shell-scripts.sh`). [`delivery/`](delivery/)
 has three documented routes with copy-and-tweak templates (API push from CI,
 `kubectl` copy + reload, and a GitOps ConfigMap route with a reload sidecar);
 start with [`delivery/README.md`](delivery/README.md).

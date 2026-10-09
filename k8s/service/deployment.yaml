@@ -113,7 +113,7 @@ spec:
             #   readOnly: true
             # To manage pipelines/steps as versioned ConfigMaps instead of PVC-resident
             # files (mutually exclusive with the write API, which writes to
-            # /data/pipelines and /data/steps), use the tested templates in
+            # /data/pipelines and /data/steps), use the templates in
             # delivery/c-gitops-configmap/ — they add these mounts plus a sidecar
             # that hot-reloads on change. Hand-rolled equivalent:
             # - name: pipelines
@@ -126,7 +126,9 @@ spec:
             # if you enable shell steps — see configmap.example.yaml). Read-only and
             # separate from the pipelines/steps mounts above on purpose: scripts are
             # host/operator-managed only, never reachable through the pipeline-write
-            # API's /data/pipelines, /data/steps.
+            # API's /data/pipelines, /data/steps. The script list and its sha256 pins
+            # are read once at startup, so changing a script means restarting the
+            # Deployment (delivery/shell-scripts.sh does this) — not a /reload.
             # - name: scripts
             #   mountPath: /etc/vectorstep/scripts
             #   readOnly: true
@@ -164,4 +166,7 @@ spec:
         #     name: vectorstep-steps       # kubectl create configmap vectorstep-steps --from-file=./steps/
         # - name: scripts
         #   configMap:
-        #     name: vectorstep-shell-scripts   # kubectl create configmap vectorstep-shell-scripts --from-file=./scripts/
+        #     name: vectorstep-shell-scripts   # delivery/shell-scripts.sh apply ./scripts   (or: kubectl create configmap ... --from-file=./scripts/)
+        #     # REQUIRED: a ConfigMap volume is mounted 0644 by default, and the service
+        #     # refuses any script without the execute bit.
+        #     defaultMode: 0555

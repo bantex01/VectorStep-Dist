@@ -10,8 +10,10 @@
 #   2. Apply ../b-file-copy/ci-rbac.example.yaml (it includes the ConfigMap rule
 #      and the pods/log access apply.sh needs to wait) and store the
 #      ServiceAccount kubeconfig as a GitLab *File* variable KUBECONFIG_VECTORSTEP.
-#   3. Copy apply.sh and reloader.py into your config repo (assumed: ci/), with
-#      config in config/{pipelines,steps,agents/<name>/}.
+#   3. Copy apply.sh, reloader.py and pack-skills.py into your config repo
+#      (assumed: ci/), with config in
+#      config/{pipelines,steps,agents/<name>/,skills/<name>/}. Packing skills
+#      needs python3 in the job image.
 #
 # apply.sh waits for the reload and FAILS the job if it is rejected. Note the
 # live config is untouched on a rejection, but the bad file stays in the

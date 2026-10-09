@@ -15,13 +15,14 @@ explanation: https://vectorstep.io/docs/operations/changing-config-on-kubernetes
 | Time to live | seconds | seconds | ~1–2 min (Kubernetes ConfigMap sync) |
 | Pipelines & steps | ✅ | ✅ | ✅ |
 | Agents | ✅ | ✅ | ✅ (assembled by the sidecar) |
-| Skills | ✅ | ✅ | ❌ use A or B |
-| Works with Argo CD / Flux | no | no | **yes** |
+| Skills | ✅ | ✅ | ✅ (packed as tarballs) |
+| Works with Argo CD / Flux | no | no | **yes** (C2) |
 | UI/API edits | allowed | allowed | **blocked** (`writes_enabled: false`) |
 
 **Not sure? Start with A** — it's the only route that checks a change before it
 touches the running system. Choose **C** if your platform team mandates that
-everything in the cluster is declared in git and reconciled by a GitOps tool.
+everything in the cluster is declared in git: either applied by a pipeline running
+`apply.sh` (C1) or reconciled by Argo CD / Flux (C2).
 Choose **B** when CI can reach the cluster with `kubectl` but you can't expose
 VectorStep's APIs.
 
@@ -35,13 +36,18 @@ read-only previews ("copy the YAML and ship it through git").
 |---|---|
 | [`a-api-push/`](a-api-push/) | `push.sh` (validate / apply from any CI), `gitlab-ci.example.yml`, `gateway-ingress.example.yaml` |
 | [`b-file-copy/`](b-file-copy/) | `sync.sh` (copy + reload + automatic rollback), `ci-rbac.example.yaml` (least-privilege CI identity), `gitlab-ci.example.yml` |
-| [`c-gitops-configmap/`](c-gitops-configmap/) | `apply.sh` (config dir → ConfigMaps, waits for the reload), `reloader.py` (sidecar), `service-patch.yaml`, `gateway-patch.yaml`, `gitlab-ci.example.yml` |
+| [`c-gitops-configmap/`](c-gitops-configmap/) | `apply.sh` (config dir → ConfigMaps, waits for the reload), `reloader.py` (sidecar), `pack-skills.py` (skills → tarballs), `service-patch.yaml`, `gateway-patch.yaml`, `gitlab-ci.example.yml` |
+| [`shell-scripts.sh`](shell-scripts.sh) | for `executor: shell` steps, on any route: print the `sha256` pins, check them on a merge request, and apply the scripts ConfigMap (with a restart). Scripts are never part of routes A–C — see the docs page |
 
 `push.sh`, `sync.sh` and `apply.sh` are plain bash that you copy into your
 config repo and call from any CI. The `gitlab-ci.example.yml` files are thin
 wrappers around them and are templates to adapt, not something we run for you.
 
 ## Route C setup (one time)
+
+This is the setup for C1 (`apply.sh`). For C2 (Argo CD / Flux) the same patches go
+in your GitOps repo and the ConfigMaps come from a kustomize `configMapGenerator`
+— see the docs page linked above.
 
 ```sh
 # 1. In each service's config.yaml ConfigMap, set (see the commented lines in
