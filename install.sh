@@ -50,6 +50,21 @@ set_env_var() {
   fi
 }
 
+# carry_telemetry_optout <file> — if the caller set VECTORSTEP_TELEMETRY or
+# DO_NOT_TRACK in the environment running this script, record it in <file> so the
+# installed services inherit the opt-out (e.g. `VECTORSTEP_TELEMETRY=false
+# ./install.sh`). Only ever writes when the variable is set; an unset variable
+# leaves the file alone, so it never re-enables telemetry on a re-run.
+carry_telemetry_optout() {
+  local file="$1" var
+  for var in VECTORSTEP_TELEMETRY DO_NOT_TRACK; do
+    if [ -n "${!var:-}" ]; then
+      set_env_var "$file" "$var" "${!var}"
+      log "telemetry: $var=${!var} carried into $file"
+    fi
+  done
+}
+
 # resolve_latest_release — print the newest published release tag (e.g. v0.1.8)
 # of the Dist repo, or nothing if none exists / GitHub is unreachable.
 resolve_latest_release() {
@@ -254,6 +269,7 @@ if [ "$NATIVE" = 1 ]; then
     set_env_var "$env_file" VECTORSTEP_VERSION "$(cat "$top/VERSION")"
     set_env_var "$env_file" VECTORSTEP_INSTALL_METHOD native
     set_env_var "$env_file" VECTORSTEP_TELEMETRY_STATE_DIR "$VARLIB/$(basename "$root")"
+    carry_telemetry_optout "$env_file"
     chown "root:$NATIVE_USER" "$env_file"; chmod 640 "$env_file"
 
     echo "$top"
@@ -519,6 +535,10 @@ if grep -q '^VECTORSTEP_VERSION=' .env; then
     || printf 'VECTORSTEP_IMAGE_TAG=%s\n' "$OLD_IMAGE_TAG" >> .env
   log "migrated .env: VECTORSTEP_VERSION -> VECTORSTEP_IMAGE_TAG"
 fi
+
+# Carry a caller-set telemetry opt-out into .env (forwarded to the containers by
+# env_file: in docker-compose.yaml).
+carry_telemetry_optout .env
 
 # --- PostgreSQL ------------------------------------------------------------
 # The service reads database.url from config/vectorstep.yaml, which is only

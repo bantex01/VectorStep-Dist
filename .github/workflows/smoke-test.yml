@@ -46,6 +46,8 @@ jobs:
           # bearing but stays correct either way: it always tests this exact
           # commit's files, never whatever happens to be live on main.
           VECTORSTEP_DIST_BASE: file://${{ github.workspace }}
+          # CI installs are not users: keep them out of the install-tracking data.
+          VECTORSTEP_TELEMETRY: 'false'
         run: |
           cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home" | tee /tmp/install-fresh.log
 
@@ -78,6 +80,8 @@ jobs:
       - name: Re-run install.sh (upgrade path — .env already exists from the run above)
         env:
           VECTORSTEP_DIST_BASE: file://${{ github.workspace }}
+          # CI installs are not users: keep them out of the install-tracking data.
+          VECTORSTEP_TELEMETRY: 'false'
         run: |
           cat install.sh | bash -s -- --dir "${{ github.workspace }}/.smoke-home" | tee /tmp/install-upgrade.log
 
