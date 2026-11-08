@@ -252,9 +252,14 @@ echo "==> 6. public release notes published for $TARGET_TAG"
 NOTES_URL="https://vectorstep.io/docs/about/release-notes/"
 NOTES_ANCHOR="${TARGET_TAG//./}"   # v0.1.13 -> v0113, the id Starlight gives "## v0.1.13"
 NOTES_BASELINE="0.1.14"             # release notes start after this version; earlier ones aren't itemised
+# Fetch the page once into a variable, never `curl | grep -q`: grep -q exits on
+# the first match, curl then fails writing the rest of the page (exit 56/23),
+# and under pipefail that turns every FOUND entry into a "missing" WARN.
+NOTES_HTML="$(curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null || true)"
+[ -n "$NOTES_HTML" ] || warn "couldn't fetch $NOTES_URL — release-notes checks below will report entries as missing"
 if [ "$(printf '%s\n%s\n' "$TARGET_VERSION" "$NOTES_BASELINE" | sort -V | tail -1)" = "$NOTES_BASELINE" ]; then
   ok "$TARGET_TAG predates the release notes (they start after v$NOTES_BASELINE) — nothing to check"
-elif curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null | grep -q "id=\"$NOTES_ANCHOR\""; then
+elif grep -q "id=\"$NOTES_ANCHOR\"" <<<"$NOTES_HTML"; then
   ok "$NOTES_URL has an entry for $TARGET_TAG"
 else
   warn "no release-notes entry for $TARGET_TAG at $NOTES_URL"
@@ -326,7 +331,7 @@ check_mcp() {
     ok "$tag predates the release notes for this package (baseline $baseline) — nothing to check"
   else
     local slug; slug="$(echo "$heading $tagver" | tr 'A-Z' 'a-z' | tr -d '.' | tr ' ' '-')"
-    if curl -fsS --max-time 20 "$NOTES_URL" 2>/dev/null | grep -q "id=\"$slug\""; then
+    if grep -q "id=\"$slug\"" <<<"$NOTES_HTML"; then
       ok "release notes have an entry for $heading $tagver"
     else
       warn "no release-notes entry for $heading $tagver at $NOTES_URL"
