@@ -21,6 +21,16 @@ artifacts:
 
 logging:
   dir: /data/logs
+  # format: text   # text | json (one object per line, for log shippers)
+
+# observability:
+#   otel:
+#     enabled: true
+#     endpoint: http://collector:4318/v1/traces
+#     # trace_url_template: "https://tracing.example.com/trace/{trace_id}"
+#     logs:                          # also export logs over OTLP; stdout stays on
+#       enabled: false
+#       # capture_content: none      # none | output | output_and_prompt - output can hold customer data
 
 executors:
   gateway:

@@ -14,6 +14,14 @@ identity:
 
 logging:
   dir: /data/logs
+  # format: text   # text | json (one object per line, for log shippers)
+
+# observability:
+#   otel:
+#     enabled: true
+#     endpoint: http://collector:4318/v1/traces
+#     logs:                          # also export logs over OTLP; stdout stays on
+#       enabled: false
 
 # An empty map is valid and /health stays "ok". Add MCP servers here once you
 # need real tools; npx-based servers fetch on first startup.
