@@ -6,6 +6,7 @@
 #   scripts/cut-release.sh                      # check, ask you to type the version, then release
 #   scripts/cut-release.sh --version 0.2.0      # a minor/major bump instead of the next patch
 #   scripts/cut-release.sh --skip-tests         # skip the local test runs (CI still runs them on the PRs)
+#   scripts/cut-release.sh --skip-post          # release without a LinkedIn draft (normally one is required)
 #   scripts/cut-release.sh --skip-arm64         # don't build/upload the arm64 native tarballs (run publish-native-arm64.sh later)
 #
 # The working model (see RELEASING.md, "Definition of done" and "Cutting a release"):
@@ -22,6 +23,7 @@
 #   - each releasing repo's CHANGELOG [Unreleased] is not empty
 #   - the website release notes have a "## vX.Y.Z" entry, and the site builds (links + notes check)
 #   - each changed MCP package has a bumped pyproject version and an "MCP X.Y.Z" notes entry
+#   - a LinkedIn draft exists in DevDocs release-posts/ (unless --skip-post)
 #   - local tests pass (unless --skip-tests)
 #   - Docker is running, for the arm64 native build (unless --skip-arm64)
 #
@@ -43,12 +45,13 @@ ENGINE=(VectorStep VectorStep-Gateway)
 DOCS=(VectorStep-Website VectorStep-DevDocs)
 MCP=(VectorStep-Service-MCP VectorStep-Gateway-MCP)
 
-DRY=0; SKIP_TESTS=0; SKIP_ARM64=0; VERSION=""
+DRY=0; SKIP_TESTS=0; SKIP_ARM64=0; SKIP_POST=0; VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --skip-tests) SKIP_TESTS=1 ;;
     --skip-arm64) SKIP_ARM64=1 ;;
+    --skip-post) SKIP_POST=1 ;;
     --version) VERSION="${2:-}"; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -166,6 +169,13 @@ info "5. release notes and website build"
 NOTES="$(repo_path VectorStep-Website)/src/content/docs/docs/about/release-notes.md"
 if [ "$ENGINE_RELEASE" = 1 ]; then
   grep -qx "## v$VERSION" "$NOTES" && ok "release notes have ## v$VERSION" || bad "release notes have no '## v$VERSION' entry (VectorStep-Website, about/release-notes.md)"
+fi
+# LinkedIn draft for the release: written in-session, kept in DevDocs, printed + copied at the end.
+POST="$(repo_path VectorStep-DevDocs)/src/content/docs/release-posts/v$VERSION-linkedin.md"
+post_text() { awk '/^---$/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' "$POST" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'; }
+if [ "$ENGINE_RELEASE" = 1 ] && [ "$SKIP_POST" = 0 ]; then
+  if [ -s "$POST" ] && [ -n "$(post_text | tr -d '[:space:]')" ]; then ok "LinkedIn draft present (release-posts/v$VERSION-linkedin.md)"
+  else bad "no LinkedIn draft at VectorStep-DevDocs/src/content/docs/release-posts/v$VERSION-linkedin.md (ask for the post, or pass --skip-post)"; fi
 fi
 MCP_VERSIONS=()
 for r in "${MCP[@]}"; do
@@ -322,3 +332,8 @@ done
 info "11. final check"
 "$SCRIPT_DIR/release-status.sh" || echo "release-status.sh reported problems; read its summary above"
 echo; echo "Released. Next: upgrade the cluster images, then use any new pipeline options."
+if [ "$ENGINE_RELEASE" = 1 ] && [ "$SKIP_POST" = 0 ] && [ -s "$POST" ]; then
+  echo; echo "==> LinkedIn post (copied to the clipboard; attach a screenshot if the draft mentions one):"; echo
+  post_text
+  command -v pbcopy >/dev/null 2>&1 && post_text | pbcopy && echo && echo "(copied)"
+fi
