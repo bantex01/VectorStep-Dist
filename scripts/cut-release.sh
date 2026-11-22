@@ -294,6 +294,9 @@ if [ "$ENGINE_RELEASE" = 1 ]; then
   vs_pr="$(checks_then_merge_prepare VectorStep "Release v$VERSION")"
   gw_pr="$(checks_then_merge_prepare VectorStep-Gateway "Release v$VERSION")"
   merge_pr VectorStep "$vs_pr"; merge_pr VectorStep-Gateway "$gw_pr"
+  # From here the release has happened. If the script stops, re-running it finds nothing to release;
+  # resume-release.sh picks up from the tags instead.
+  trap 'rc=$?; [ $rc -ne 0 ] && echo && echo "The release was merged, so do NOT re-run this script. Fix the problem above, then run: scripts/resume-release.sh $VERSION" >&2' EXIT
   wait_tag VectorStep "v$VERSION" && wait_tag VectorStep-Gateway "v$VERSION" || die "tag v$VERSION did not appear in both repos; run release-status.sh"
   ok "both repos tagged v$VERSION"
   for r in "${ENGINE[@]}"; do watch_workflow "$r" image.yml "v$VERSION"; watch_workflow "$r" native.yml "v$VERSION"; done
@@ -329,6 +332,7 @@ for mv in "${MCP_VERSIONS[@]:-}"; do
   done
 done
 
+trap - EXIT   # everything that can stop a merged release has passed
 info "11. final check"
 "$SCRIPT_DIR/release-status.sh" || echo "release-status.sh reported problems; read its summary above"
 echo; echo "Released. Next: upgrade the cluster images, then use any new pipeline options."
@@ -337,3 +341,4 @@ if [ "$ENGINE_RELEASE" = 1 ] && [ "$SKIP_POST" = 0 ] && [ -s "$POST" ]; then
   post_text
   command -v pbcopy >/dev/null 2>&1 && post_text | pbcopy && echo && echo "(copied)"
 fi
+exit 0
