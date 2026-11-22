@@ -86,7 +86,12 @@ sys.exit(0 if m and m.group(1).strip() else 1)
 EOF
 }
 
+changelog_rolled() {  # repo version: already rolled (a re-run after a failed release)?
+  grep -qF "## [$2]" "$(repo_path "$1")/CHANGELOG.md"
+}
+
 roll_changelog() {  # repo version
+  if changelog_rolled "$1" "$2"; then info "$1: changelog already rolled for $2"; return 0; fi
   python3 - "$(repo_path "$1")/CHANGELOG.md" "$2" "$(date +%F)" <<'EOF'
 import sys
 p,v,d=sys.argv[1:]
@@ -151,6 +156,9 @@ fi
 info "4. changelogs"
 for r in "${ENGINE[@]}" "${MCP[@]}"; do
   has_work "$r" || continue
+  if [[ " ${ENGINE[*]} " == *" $r "* ]] && changelog_rolled "$r" "$VERSION"; then
+    ok "$r: changelog already rolled for $VERSION (resuming)"; continue
+  fi
   unreleased_nonempty "$r" && ok "$r: [Unreleased] has entries" || bad "$r: CHANGELOG [Unreleased] is empty; add what changed"
 done
 
