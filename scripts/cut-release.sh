@@ -293,6 +293,7 @@ if [ "$ENGINE_RELEASE" = 1 ]; then
     info "9b. arm64 native tarballs (local Docker build, uploaded to the Dist release)"
     # The build must come from the tagged commit, not whatever a local checkout happens to hold.
     for r in "${ENGINE[@]}"; do
+      git_ "$r" fetch -q --tags origin   # the tag was created by CI, so this clone doesn't have it yet
       [ "$(git_ "$r" rev-parse HEAD)" = "$(git_ "$r" rev-list -n1 "v$VERSION")" ] \
         || die "$r: local checkout is not at v$VERSION; pull main, then run scripts/publish-native-arm64.sh $VERSION"
     done
