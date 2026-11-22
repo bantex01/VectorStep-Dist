@@ -6,6 +6,7 @@
 #   scripts/cut-release.sh                      # check, ask you to type the version, then release
 #   scripts/cut-release.sh --version 0.2.0      # a minor/major bump instead of the next patch
 #   scripts/cut-release.sh --skip-tests         # skip the local test runs (CI still runs them on the PRs)
+#   scripts/cut-release.sh --skip-arm64         # don't build/upload the arm64 native tarballs (run publish-native-arm64.sh later)
 #
 # The working model (see RELEASING.md, "Definition of done" and "Cutting a release"):
 #   * During a session, work is committed LOCALLY on a branch (never main), as you, with the
@@ -22,11 +23,13 @@
 #   - the website release notes have a "## vX.Y.Z" entry, and the site builds (links + notes check)
 #   - each changed MCP package has a bumped pyproject version and an "MCP X.Y.Z" notes entry
 #   - local tests pass (unless --skip-tests)
+#   - Docker is running, for the arm64 native build (unless --skip-arm64)
 #
 # What it does, in order: roll the CHANGELOGs, then for each repo push the branch, open a PR, wait for
 # CI, merge (merge commit, so your descriptive commits survive). Website and DevDocs first so the
 # release-notes link is live; then VectorStep + Gateway back to back; then wait for the tags to match,
-# the images and native builds to finish; then tag and publish each changed MCP package and wait for it
+# the images and native builds to finish; then build and upload the arm64 native tarballs locally
+# (publish-native-arm64.sh, which needs Docker); then tag and publish each changed MCP package and wait for it
 # to appear on PyPI; finally run release-status.sh.
 #
 # Needs: git, gh (logged in), python3, npm, curl. Sibling checkouts, as in release-status.sh.
@@ -40,11 +43,12 @@ ENGINE=(VectorStep VectorStep-Gateway)
 DOCS=(VectorStep-Website VectorStep-DevDocs)
 MCP=(VectorStep-Service-MCP VectorStep-Gateway-MCP)
 
-DRY=0; SKIP_TESTS=0; VERSION=""
+DRY=0; SKIP_TESTS=0; SKIP_ARM64=0; VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --skip-tests) SKIP_TESTS=1 ;;
+    --skip-arm64) SKIP_ARM64=1 ;;
     --version) VERSION="${2:-}"; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -183,6 +187,15 @@ else
   fi
 fi
 
+info "7. arm64 build prerequisites"
+if [ "$ENGINE_RELEASE" = 1 ] && [ "$SKIP_ARM64" = 0 ]; then
+  docker info >/dev/null 2>&1 && ok "Docker is running (arm64 native build)" || bad "Docker is not running; start it, or pass --skip-arm64 and run publish-native-arm64.sh $VERSION later"
+  [ -x "$(repo_path VectorStep)/service/native/build.sh" ] && [ -x "$(repo_path VectorStep-Gateway)/native/build.sh" ] \
+    && ok "native build scripts found" || bad "native/build.sh missing or not executable in VectorStep or VectorStep-Gateway"
+else
+  echo "  skipped"
+fi
+
 echo
 info "plan"
 for r in "${WORK[@]}"; do
@@ -190,6 +203,7 @@ for r in "${WORK[@]}"; do
   git_ "$r" log origin/main..HEAD --format='      %h %s'
 done
 [ "$ENGINE_RELEASE" = 1 ] && echo "  engine release: v$VERSION (VectorStep + Gateway)"
+[ "$ENGINE_RELEASE" = 1 ] && [ "$SKIP_ARM64" = 0 ] && echo "  arm64 native tarballs: built locally and uploaded to VectorStep-Dist v$VERSION"
 for mv in "${MCP_VERSIONS[@]:-}"; do [ -n "$mv" ] && echo "  MCP release: ${mv%%=*} v${mv#*=} (tag, then PyPI)"; done
 
 if [ ${#ERRORS[@]} -gt 0 ]; then
@@ -260,6 +274,19 @@ if [ "$ENGINE_RELEASE" = 1 ]; then
   ok "both repos tagged v$VERSION"
   for r in "${ENGINE[@]}"; do watch_workflow "$r" image.yml "v$VERSION"; watch_workflow "$r" native.yml "v$VERSION"; done
   ok "images and native builds finished"
+
+  if [ "$SKIP_ARM64" = 0 ]; then
+    info "9b. arm64 native tarballs (local Docker build, uploaded to the Dist release)"
+    # The build must come from the tagged commit, not whatever a local checkout happens to hold.
+    for r in "${ENGINE[@]}"; do
+      [ "$(git_ "$r" rev-parse HEAD)" = "$(git_ "$r" rev-list -n1 "v$VERSION")" ] \
+        || die "$r: local checkout is not at v$VERSION; pull main, then run scripts/publish-native-arm64.sh $VERSION"
+    done
+    "$SCRIPT_DIR/publish-native-arm64.sh" "$VERSION" || die "arm64 build/upload failed; fix it and run scripts/publish-native-arm64.sh $VERSION"
+    ok "arm64 assets uploaded to VectorStep-Dist v$VERSION"
+  else
+    echo "  skipped (--skip-arm64); run scripts/publish-native-arm64.sh $VERSION when ready"
+  fi
 fi
 
 for mv in "${MCP_VERSIONS[@]:-}"; do
