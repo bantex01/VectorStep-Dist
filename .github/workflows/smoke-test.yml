@@ -23,6 +23,8 @@ name: compose smoke test
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]   # main requires this check, so it has to run on PRs (the release script merges via PR)
   schedule:
     - cron: '17 6 * * *' # daily, off the hour — catch drift even with no pushes
   workflow_dispatch:
