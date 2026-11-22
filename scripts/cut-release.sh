@@ -252,7 +252,7 @@ merge_pr() {  # repo pr
 wait_tag() {  # repo tag
   local i
   for i in $(seq 1 40); do
-    git ls-remote --tags "https://github.com/$OWNER/$1.git" "refs/tags/$2" | grep -q "$2" && return 0
+    gh api "repos/$OWNER/$1/git/ref/tags/$2" >/dev/null 2>&1 && return 0
     sleep 30
   done
   return 1
