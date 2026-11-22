@@ -229,9 +229,15 @@ checks_then_merge_prepare() {  # repo -> prints PR number; pushes branch, opens 
   local r="$1" title="$2" b pr
   b="$(branch_of "$r")"
   git_ "$r" push -q -u origin "$b"
-  pr="$(gh pr create --repo "$OWNER/$r" --base main --head "$b" --title "$title" \
-        --body "$(printf 'Release PR for %s.\n\nCommits:\n%s\n' "$title" "$(git_ "$r" log origin/main..HEAD --format='- %s')")")"
-  pr="${pr##*/}"
+  # reuse an open PR for this branch (a re-run after a failed release), else open one
+  pr="$(gh pr list --repo "$OWNER/$r" --head "$b" --state open --json number --jq '.[0].number // empty')"
+  if [ -z "$pr" ]; then
+    pr="$(gh pr create --repo "$OWNER/$r" --base main --head "$b" --title "$title" \
+          --body "$(printf 'Release PR for %s.\n\nCommits:\n%s\n' "$title" "$(git_ "$r" log origin/main..HEAD --format='- %s')")")"
+    pr="${pr##*/}"
+  else
+    info "$r: reusing open PR #$pr" >&2
+  fi
   sleep 15
   if [ "$(gh pr checks "$pr" --repo "$OWNER/$r" --json name --jq length 2>/dev/null || echo 0)" -gt 0 ]; then
     gh pr checks "$pr" --repo "$OWNER/$r" --watch --fail-fast >&2 || die "$r: CI failed on PR #$pr; fix it, then re-run"
