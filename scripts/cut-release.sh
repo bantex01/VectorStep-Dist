@@ -238,9 +238,9 @@ read -r -p "This will push, open PRs and MERGE them (an engine merge is a releas
 checks_then_merge_prepare() {  # repo -> prints PR number; pushes branch, opens PR, waits for CI
   local r="$1" title="$2" b pr
   b="$(branch_of "$r")"
-  git_ "$r" push -q -u origin "$b"
+  git_ "$r" push -q -u origin "$b" >&2 || die "$r: push of $b failed (is the remote branch ahead or diverged? fix it, then re-run); nothing was merged"
   # reuse an open PR for this branch (a re-run after a failed release), else open one
-  pr="$(gh pr list --repo "$OWNER/$r" --head "$b" --state open --json number --jq '.[0].number // empty')"
+  pr="$(gh pr list --repo "$OWNER/$r" --head "$b" --state open --json number --jq '.[0].number // empty')" || die "$r: could not list PRs"
   if [ -z "$pr" ]; then
     pr="$(gh pr create --repo "$OWNER/$r" --base main --head "$b" --title "$title" \
           --body "$(printf 'Release PR for %s.\n\nCommits:\n%s\n' "$title" "$(git_ "$r" log origin/main..HEAD --format='- %s')")")"
